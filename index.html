@@ -35,7 +35,7 @@
   <script type="text/babel" data-type="module">
     import React, { useState, useEffect, useMemo } from 'react';
     import { createRoot } from 'react-dom/client';
-    import { Edit, PieChart, Settings as SettingsIcon, Plus, Trash2, CheckCircle, AlertCircle, Save, X, MessageSquare, ChevronRight, Calendar, User, Clock, BellRing, Square, CheckSquare } from 'lucide-react';
+    import { Edit, PieChart, Settings as SettingsIcon, Plus, Trash2, CheckCircle, AlertCircle, Save, X, MessageSquare, ChevronRight, Calendar, User, Clock, BellRing, Square, CheckSquare, ArrowUp, ArrowDown } from 'lucide-react';
     
     import { initializeApp } from "firebase/app";
     import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "firebase/auth";
@@ -578,6 +578,19 @@
       const removeSetting = (key, id) => saveSettings({ ...settings, [key]: settings[key].filter(item => item.id !== id) });
       const updateRankingItem = (productId, rankingItem) => saveSettings({ ...settings, products: settings.products.map(p => p.id === productId ? { ...p, rankingItem } : p) });
       const updateOtherStatRankingItem = (osId, rankingItem) => saveSettings({ ...settings, otherStats: (settings.otherStats||[]).map(os => os.id === osId ? { ...os, rankingItem } : os) });
+
+      // 追加: アイテムの順序を入れ替える機能
+      const moveItem = (key, index, direction) => {
+        const newArray = [...(settings[key] || [])];
+        if (direction === 'up' && index > 0) {
+          [newArray[index - 1], newArray[index]] = [newArray[index], newArray[index - 1]];
+        } else if (direction === 'down' && index < newArray.length - 1) {
+          [newArray[index], newArray[index + 1]] = [newArray[index + 1], newArray[index]];
+        } else {
+          return;
+        }
+        saveSettings({ ...settings, [key]: newArray });
+      };
 
       if (!user) return <div className="flex justify-center h-screen items-center bg-[#f2f2f7] text-gray-400 font-semibold">読み込み中...</div>;
 
@@ -1232,9 +1245,14 @@
                         <button onClick={addShop} className="bg-gray-900 text-white px-4 rounded-xl flex items-center justify-center active:scale-95 transition-transform"><Plus size={18}/></button>
                       </div>
                       <ul className="divide-y divide-gray-50">
-                        {settings.shops.map(s => (
+                        {settings.shops.map((s, idx) => (
                           <li key={s.id} className="py-2.5 flex justify-between items-center text-gray-700 font-medium">
-                            <span className="pl-2">{s.name}</span> <button onClick={()=>removeSetting('shops', s.id)} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={16}/></button>
+                            <span className="pl-2">{s.name}</span> 
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => moveItem('shops', idx, 'up')} disabled={idx === 0} className="p-1 text-gray-400 disabled:opacity-30 active:scale-90"><ArrowUp size={16}/></button>
+                              <button onClick={() => moveItem('shops', idx, 'down')} disabled={idx === settings.shops.length - 1} className="p-1 text-gray-400 disabled:opacity-30 active:scale-90"><ArrowDown size={16}/></button>
+                              <button onClick={()=>removeSetting('shops', s.id)} className="text-gray-300 hover:text-red-500 p-1 ml-1"><Trash2 size={16}/></button>
+                            </div>
                           </li>
                         ))}
                       </ul>
@@ -1253,10 +1271,14 @@
                         </div>
                       </div>
                       <ul className="divide-y divide-gray-50">
-                        {settings.staffs.map(st => (
+                        {settings.staffs.map((st, idx) => (
                           <li key={st.id} className="py-2.5 flex justify-between items-center text-gray-700 font-medium">
                             <span className="pl-2">{st.name} <span className="text-[10px] text-gray-400 font-normal ml-2">{settings.shops.find(s=>s.id===st.shopId)?.name}</span></span>
-                            <button onClick={()=>removeSetting('staffs', st.id)} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={16}/></button>
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => moveItem('staffs', idx, 'up')} disabled={idx === 0} className="p-1 text-gray-400 disabled:opacity-30 active:scale-90"><ArrowUp size={16}/></button>
+                              <button onClick={() => moveItem('staffs', idx, 'down')} disabled={idx === settings.staffs.length - 1} className="p-1 text-gray-400 disabled:opacity-30 active:scale-90"><ArrowDown size={16}/></button>
+                              <button onClick={()=>removeSetting('staffs', st.id)} className="text-gray-300 hover:text-red-500 p-1 ml-1"><Trash2 size={16}/></button>
+                            </div>
                           </li>
                         ))}
                       </ul>
@@ -1280,7 +1302,7 @@
                       </div>
                       
                       <ul className="space-y-3">
-                        {settings.products.map(p => {
+                        {settings.products.map((p, idx) => {
                           if (editingProduct && editingProduct.id === p.id) {
                             return (
                               <li key={p.id} className="p-4 border rounded-2xl text-sm relative bg-white shadow-sm border-gray-200">
@@ -1315,7 +1337,9 @@
                                   {p.items.map(i => <option key={i} value={i}>{i}</option>)}
                                 </select>
                               </div>
-                              <div className="absolute top-4 right-3 flex gap-2">
+                              <div className="absolute top-4 right-3 flex gap-2 bg-white rounded-lg px-1 shadow-[0_0_10px_rgba(0,0,0,0.05)]">
+                                <button onClick={() => moveItem('products', idx, 'up')} disabled={idx === 0} className="text-gray-400 hover:text-gray-900 p-1 disabled:opacity-30 active:scale-90"><ArrowUp size={16}/></button>
+                                <button onClick={() => moveItem('products', idx, 'down')} disabled={idx === settings.products.length - 1} className="text-gray-400 hover:text-gray-900 p-1 disabled:opacity-30 active:scale-90"><ArrowDown size={16}/></button>
                                 <button onClick={()=>setEditingProduct({ id: p.id, category: p.category || '', name: p.name, itemsStr: p.items.join(', ') })} className="text-gray-400 hover:text-gray-900 p-1"><Edit size={16}/></button>
                                 <button onClick={()=>removeSetting('products', p.id)} className="text-gray-400 hover:text-red-500 p-1"><Trash2 size={16}/></button>
                               </div>
@@ -1347,7 +1371,7 @@
                       </div>
                       
                       <ul className="space-y-3">
-                        {(settings.otherStats||[]).map(os => {
+                        {(settings.otherStats||[]).map((os, idx) => {
                           if (editingOtherStat && editingOtherStat.id === os.id) {
                             return (
                               <li key={os.id} className="p-4 border rounded-2xl text-sm relative bg-white shadow-sm border-amber-200">
@@ -1382,7 +1406,9 @@
                                   {os.items.map(i => <option key={i} value={i}>{i}</option>)}
                                 </select>
                               </div>
-                              <div className="absolute top-4 right-3 flex gap-2">
+                              <div className="absolute top-4 right-3 flex gap-2 bg-white rounded-lg px-1 shadow-[0_0_10px_rgba(0,0,0,0.05)]">
+                                <button onClick={() => moveItem('otherStats', idx, 'up')} disabled={idx === 0} className="text-gray-400 hover:text-amber-500 p-1 disabled:opacity-30 active:scale-90"><ArrowUp size={16}/></button>
+                                <button onClick={() => moveItem('otherStats', idx, 'down')} disabled={idx === (settings.otherStats||[]).length - 1} className="text-gray-400 hover:text-amber-500 p-1 disabled:opacity-30 active:scale-90"><ArrowDown size={16}/></button>
                                 <button onClick={()=>setEditingOtherStat({ id: os.id, mainCategory: os.mainCategory, subCategory: os.subCategory, itemsStr: os.items.join(', ') })} className="text-gray-400 hover:text-amber-500 p-1"><Edit size={16}/></button>
                                 <button onClick={()=>removeSetting('otherStats', os.id)} className="text-gray-400 hover:text-red-500 p-1"><Trash2 size={16}/></button>
                               </div>
