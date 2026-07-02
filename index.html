@@ -56,38 +56,25 @@
 
       const defaultSettings = {
         adminPassword: '0000',
-        shops: [
-          { id: 'shop1', name: '渋谷店' },
-          { id: 'shop2', name: '新宿店' }
-        ],
-        staffs: [
-          { id: 'staff1', shopId: 'shop1', name: '山田太郎' },
-          { id: 'staff2', shopId: 'shop1', name: '佐藤花子' },
-          { id: 'staff3', shopId: 'shop2', name: '鈴木一郎' }
-        ],
-        products: [
-          { id: 'prod1', category: '金融', name: 'クレジットカード', rankingItem: '獲得', items: ['提案あり', '提案無し', '獲得', '未獲得', '既存', '対象外'] },
-          { id: 'prod2', category: 'ライフデザイン', name: 'でんき', rankingItem: '獲得', items: ['提案あり', '提案無し', '獲得', '未獲得', '既存', '対象外'] },
-          { id: 'prod3', category: '通信', name: 'インターネット', rankingItem: '獲得', items: ['提案あり', '提案無し', '獲得', '未獲得', '既存', '対象外'] }
-        ],
-        otherStats: [
-          { id: 'os1', mainCategory: '来店', subCategory: '目的別', rankingItem: '新規契約', items: ['新規契約', '機種変更', '修理', '操作案内'] },
-          { id: 'os2', mainCategory: '物販', subCategory: 'アクセサリー', rankingItem: 'フィルム', items: ['フィルム', 'ケース', '充電器', 'その他'] }
-        ]
+        shops: [],
+        staffs: [],
+        products: [],
+        otherStats: []
       };
 
       useEffect(() => {
         const id = typeof __app_id !== 'undefined' ? __app_id : 'au-shop-app';
         setAppId(id);
         
+        // お客様専用のFirebase設定
         const firebaseConfig = {
-          apiKey: "AIzaSyBFyLeNnq25m1f1q9kkGxyVAWKmXfOQR_I",
-          authDomain: "au-shop-app.firebaseapp.com",
-          projectId: "au-shop-app",
-          storageBucket: "au-shop-app.firebasestorage.app",
-          messagingSenderId: "964410590176",
-          appId: "1:964410590176:web:0425648970f90c82622185",
-          measurementId: "G-DMCVL6Q9FM"
+          apiKey: "AIzaSyCgcxl420NijkbRL-_XUjj9I6Teub3cAsY",
+          authDomain: "au-management-3f874.firebaseapp.com",
+          projectId: "au-management-3f874",
+          storageBucket: "au-management-3f874.firebasestorage.app",
+          messagingSenderId: "739830675936",
+          appId: "1:739830675936:web:e0d04e2ff7099fc3329385",
+          measurementId: "G-VPTNVG5RGP"
         };
         
         // プレビュー環境(Sandbox)かどうかを判定
