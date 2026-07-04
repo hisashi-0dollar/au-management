@@ -45,6 +45,21 @@
     // 連携用GASの新しいURL
     const GAS_URL = 'https://script.google.com/macros/s/AKfycbwTvFPfJjL9oTnxR8SCX_L9AZW_iT1va8_G4a4m-OqigO6tPYL8cn5EXAqxRnXduhh58w/exec';
 
+    // 日本時間での日付文字列取得関数
+    const getLocalDateString = (d = new Date()) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    // 日本時間での年月文字列取得関数
+    const getLocalMonthString = (d = new Date()) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      return `${year}-${month}`;
+    };
+
     function App() {
       const [user, setUser] = useState(null);
       const [db, setDb] = useState(null);
@@ -58,11 +73,11 @@
       const [shares, setShares] = useState([]);
 
       const [period, setPeriod] = useState('day');
-      const [baseDate, setBaseDate] = useState(new Date().toISOString().split('T')[0]);
+      const [baseDate, setBaseDate] = useState(getLocalDateString());
       
       const [dataType, setDataType] = useState('product'); // 'product', 'other', 'goal'
 
-      // データタブは「当月の1日以降」、それ以外は「直近7日」
+      // データタブは「当月の1日以降」、それ以外は「直近14日」に修正
       const dataSince = useMemo(() => {
         if (tab === 'analytics') {
           const d = new Date();
@@ -71,7 +86,7 @@
           return d.getTime();
         }
         const d = new Date();
-        d.setDate(d.getDate() - 7);
+        d.setDate(d.getDate() - 14); // ランキング用に余裕をもって14日分取得
         d.setHours(0, 0, 0, 0);
         return d.getTime();
       }, [tab]);
@@ -135,11 +150,27 @@
         const url = settings.gasUrl || GAS_URL;
         if (!url) return;
         try {
-          const res = await fetch(`${url}?action=getRecords&since=${since}`);
+          const res = await fetch(`${url}?action=getRecords&since=${since}`, {
+            method: 'GET',
+            mode: 'cors',
+            redirect: 'follow'
+          });
+          if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
           const data = await res.json();
-          setRecords(data);
+          // 日付のズレを修正して正規化（スプレッドシートからのDate文字列変換対策）
+          const normalizedData = data.map(r => {
+            let dStr = r.date || '';
+            if (dStr.includes('T')) {
+              dStr = getLocalDateString(new Date(dStr));
+            }
+            return { ...r, date: dStr };
+          });
+          setRecords(normalizedData);
         } catch (e) {
           console.error("GAS fetch error:", e);
+          if (e.message === 'Failed to fetch') {
+            console.warn("GASのURLにアクセスできません。「アクセスできるユーザー」が「全員」になっているか確認してください。");
+          }
         }
       };
 
@@ -182,7 +213,7 @@
         setTimeout(() => setMsg({ text: '', type: '' }), 3000);
       };
 
-      const [recForm, setRecForm] = useState({ date: new Date().toISOString().split('T')[0], shopId: '', staffId: '' });
+      const [recForm, setRecForm] = useState({ date: getLocalDateString(), shopId: '', staffId: '' });
       const [selectedItems, setSelectedItems] = useState({});
       const [otherCounts, setOtherCounts] = useState({});
 
@@ -223,9 +254,16 @@
 
           const url = settings.gasUrl || GAS_URL;
           if (url) {
-            await fetch(url, { 
-              method: 'POST', body: JSON.stringify({ action: 'addRecords', records: newRecords }) 
+            const res = await fetch(url, { 
+              method: 'POST', 
+              mode: 'cors',
+              redirect: 'follow',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ action: 'addRecords', records: newRecords }) 
             });
+            if(!res.ok) throw new Error("Network response was not ok");
+            const result = await res.json();
+            if(!result.success) throw new Error("GAS returned error: " + result.error);
             fetchRecordsFromGas(dataSince);
           } else {
             const recordsRef = collection(db, 'artifacts', appId, 'public', 'data', 'records');
@@ -234,7 +272,7 @@
           }
           showMsg('商材実績を登録しました');
           setSelectedItems({}); 
-        } catch (err) { showMsg('登録に失敗しました', 'error'); }
+        } catch (err) { showMsg('登録できませんでした。再度、登録をしてください', 'error'); console.error(err); }
       };
 
       const submitOtherRecords = async () => {
@@ -260,9 +298,16 @@
 
           const url = settings.gasUrl || GAS_URL;
           if (url) {
-            await fetch(url, { 
-              method: 'POST', body: JSON.stringify({ action: 'addRecords', records: newRecords }) 
+            const res = await fetch(url, { 
+              method: 'POST', 
+              mode: 'cors',
+              redirect: 'follow',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ action: 'addRecords', records: newRecords }) 
             });
+            if(!res.ok) throw new Error("Network response was not ok");
+            const result = await res.json();
+            if(!result.success) throw new Error("GAS returned error: " + result.error);
             fetchRecordsFromGas(dataSince);
           } else {
             const recordsRef = collection(db, 'artifacts', appId, 'public', 'data', 'records');
@@ -271,7 +316,7 @@
           }
           showMsg('その他実績を登録しました');
           setOtherCounts({}); 
-        } catch (err) { showMsg('登録に失敗しました', 'error'); }
+        } catch (err) { showMsg('登録できませんでした。再度、登録をしてください', 'error'); console.error(err); }
       };
 
       const currentWeekRecords = useMemo(() => {
@@ -279,8 +324,10 @@
         const day = d.getDay();
         const start = new Date(d); start.setDate(d.getDate() - day + (day === 0 ? -6 : 1));
         const end = new Date(start); end.setDate(start.getDate() + 6);
-        const startStr = start.toISOString().split('T')[0];
-        const endStr = end.toISOString().split('T')[0];
+        
+        const startStr = getLocalDateString(start);
+        const endStr = getLocalDateString(end);
+        
         return records.filter(r => r.date >= startStr && r.date <= endStr);
       }, [records]);
 
@@ -321,9 +368,15 @@
         return shares.filter(s => {
           if (s.deadline && s.deadline < today) return false;
           if (s.type === 'task') {
-            const targets = s.targetStaffIds || [];
-            const completed = s.completedStaffIds || [];
-            return targets.length > 0 && completed.length < targets.length;
+            const targetStaffs = s.targetStaffIds || [];
+            const completedStaffs = s.completedStaffIds || [];
+            const targetShops = s.targetShopIds || [];
+            const completedShops = s.completedShopIds || [];
+            
+            const hasUncompletedStaffs = targetStaffs.length > 0 && completedStaffs.length < targetStaffs.length;
+            const hasUncompletedShops = targetShops.length > 0 && completedShops.length < targetShops.length;
+            
+            return hasUncompletedStaffs || hasUncompletedShops;
           } else if (s.type === 'shift') {
             const submitted = Object.keys(s.shiftRequests || {});
             const staffCount = (settings.staffs || []).filter(st => s.targetShopId === 'all' || st.shopId === s.targetShopId).length;
@@ -347,12 +400,13 @@
 
       const filteredRecords = useMemo(() => {
         return records.filter(r => {
+          if (!r.date) return false;
           if (period === 'day') return r.date === baseDate;
           if (period === 'week') {
             const d = new Date(baseDate), day = d.getDay();
             const start = new Date(d); start.setDate(d.getDate() - day + (day === 0 ? -6 : 1));
             const end = new Date(start); end.setDate(start.getDate() + 6);
-            return r.date >= start.toISOString().split('T')[0] && r.date <= end.toISOString().split('T')[0];
+            return r.date >= getLocalDateString(start) && r.date <= getLocalDateString(end);
           }
           if (period === 'month') return r.date.substring(0, 7) === baseDate.substring(0, 7);
           return true;
@@ -448,21 +502,30 @@
         try { 
           const url = settings.gasUrl || GAS_URL;
           if (url) {
-            await fetch(url, { method: 'POST', body: JSON.stringify({ action: 'deleteRecord', id: id }) });
+            const res = await fetch(url, { 
+              method: 'POST', 
+              mode: 'cors',
+              redirect: 'follow',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ action: 'deleteRecord', id: id }) 
+            });
+            if(!res.ok) throw new Error("Network response was not ok");
+            const result = await res.json();
+            if(!result.success) throw new Error("GAS returned error: " + result.error);
             fetchRecordsFromGas(dataSince);
           } else {
             await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'records', id)); 
           }
           showMsg('実績を削除しました'); 
         } 
-        catch (e) { showMsg('削除失敗', 'error'); }
+        catch (e) { showMsg('削除できませんでした。再度お試しください', 'error'); console.error(e); }
       };
 
       const [isCreatingShare, setIsCreatingShare] = useState(false);
       const [editingShareId, setEditingShareId] = useState(null);
       
       const [shareForm, setShareForm] = useState({
-        type: 'task', targetShopId: 'all', creatorStaffId: '', title: '', content: '', deadline: '', targetStaffIds: [], goals: {}, targetMonth: new Date().toISOString().substring(0, 7)
+        type: 'task', targetShopId: 'all', creatorStaffId: '', title: '', content: '', deadline: '', targetStaffIds: [], targetShopIds: [], goals: {}, targetMonth: new Date().toISOString().substring(0, 7)
       });
       const [shiftInput, setShiftInput] = useState({ shareId: '', staffId: '', dates: '' });
       const [goalProgressInput, setGoalProgressInput] = useState({ shareId: '', staffId: '', text: '' });
@@ -520,12 +583,12 @@
       const resetShareForm = () => {
         setIsCreatingShare(false);
         setEditingShareId(null);
-        setShareForm({ type: 'task', targetShopId: 'all', creatorStaffId: '', title: '', content: '', deadline: '', targetStaffIds: [], goals: {}, targetMonth: new Date().toISOString().substring(0, 7) });
+        setShareForm({ type: 'task', targetShopId: 'all', creatorStaffId: '', title: '', content: '', deadline: '', targetStaffIds: [], targetShopIds: [], goals: {}, targetMonth: new Date().toISOString().substring(0, 7) });
       };
 
       const submitShare = async () => {
         if (!shareForm.creatorStaffId || !shareForm.title) return showMsg('作成者とタイトルは必須です', 'error');
-        if (shareForm.type === 'task' && shareForm.targetStaffIds.length === 0) return showMsg('対象スタッフを選択してください', 'error');
+        if (shareForm.type === 'task' && shareForm.targetStaffIds.length === 0 && shareForm.targetShopIds.length === 0) return showMsg('対象の店舗またはスタッフを選択してください', 'error');
         
         try {
           if (editingShareId) {
@@ -536,7 +599,7 @@
           } else {
             const sharesRef = collection(db, 'artifacts', appId, 'public', 'data', 'shares');
             await addDoc(sharesRef, {
-              ...shareForm, timestamp: Date.now(), completedStaffIds: [], shiftRequests: {}
+              ...shareForm, timestamp: Date.now(), completedStaffIds: [], completedShopIds: [], shiftRequests: {}
             });
             showMsg('共有事項を投稿しました');
           }
@@ -553,6 +616,7 @@
           content: share.content || '',
           deadline: share.deadline || '',
           targetStaffIds: share.targetStaffIds || [],
+          targetShopIds: share.targetShopIds || [],
           goals: share.goals || {},
           targetMonth: share.targetMonth || new Date().toISOString().substring(0, 7)
         });
@@ -571,6 +635,14 @@
         const isCompleted = completed.includes(staffId);
         const newCompleted = isCompleted ? completed.filter(id => id !== staffId) : [...completed, staffId];
         try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', share.id), { completedStaffIds: newCompleted }); } 
+        catch (err) { showMsg('更新に失敗しました', 'error'); }
+      };
+
+      const toggleShopTaskCompletion = async (share, shopId) => {
+        const completed = share.completedShopIds || [];
+        const isCompleted = completed.includes(shopId);
+        const newCompleted = isCompleted ? completed.filter(id => id !== shopId) : [...completed, shopId];
+        try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', share.id), { completedShopIds: newCompleted }); } 
         catch (err) { showMsg('更新に失敗しました', 'error'); }
       };
 
@@ -1247,34 +1319,67 @@
                     )}
 
                     {shareForm.type === 'task' && (
-                      <div className="bg-[#f2f2f7] p-4 rounded-2xl">
-                        <div className="flex justify-between items-center mb-3">
-                          <span className="text-xs font-bold text-gray-700">対象スタッフ</span>
-                          <button 
-                            onClick={() => {
-                              const targets = (settings.staffs || []).filter(s => shareForm.targetShopId === 'all' || s.shopId === shareForm.targetShopId).map(s=>s.id);
-                              setShareForm({...shareForm, targetStaffIds: shareForm.targetStaffIds.length === targets.length ? [] : targets});
-                            }} 
-                            className="text-[10px] bg-white px-2 py-1 rounded shadow-sm font-bold text-gray-600 active:bg-gray-100"
-                          >
-                            全員選択
-                          </button>
+                      <div className="bg-[#f2f2f7] p-4 rounded-2xl space-y-4">
+                        <div>
+                          <div className="flex justify-between items-center mb-3">
+                            <span className="text-xs font-bold text-gray-700">対象店舗 (店舗ごとのタスク)</span>
+                            <button 
+                              onClick={() => {
+                                const targets = (settings.shops || []).map(s=>s.id);
+                                setShareForm({...shareForm, targetShopIds: (shareForm.targetShopIds || []).length === targets.length ? [] : targets});
+                              }} 
+                              className="text-[10px] bg-white px-2 py-1 rounded shadow-sm font-bold text-gray-600 active:bg-gray-100"
+                            >
+                              全員選択
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto hide-scroll">
+                            {(settings.shops || []).map(s => (
+                              <label key={s.id} className="flex items-center space-x-2 text-sm bg-white p-2 rounded-xl">
+                                <input 
+                                  type="checkbox" 
+                                  checked={(shareForm.targetShopIds || []).includes(s.id)} 
+                                  onChange={(e) => {
+                                    const newIds = e.target.checked ? [...(shareForm.targetShopIds || []), s.id] : (shareForm.targetShopIds || []).filter(id=>id!==s.id);
+                                    setShareForm({...shareForm, targetShopIds: newIds});
+                                  }}
+                                  className="rounded text-gray-900 focus:ring-gray-900 border-gray-300"
+                                />
+                                <span className="text-gray-700 font-medium truncate">{s.name}</span>
+                              </label>
+                            ))}
+                          </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto hide-scroll">
-                          {(settings.staffs || []).filter(s => shareForm.targetShopId === 'all' || s.shopId === shareForm.targetShopId).map(s => (
-                            <label key={s.id} className="flex items-center space-x-2 text-sm bg-white p-2 rounded-xl">
-                              <input 
-                                type="checkbox" 
-                                checked={shareForm.targetStaffIds.includes(s.id)} 
-                                onChange={(e) => {
-                                  const newIds = e.target.checked ? [...shareForm.targetStaffIds, s.id] : shareForm.targetStaffIds.filter(id=>id!==s.id);
-                                  setShareForm({...shareForm, targetStaffIds: newIds});
-                                }}
-                                className="rounded text-gray-900 focus:ring-gray-900 border-gray-300"
-                              />
-                              <span className="text-gray-700 font-medium truncate">{s.name}</span>
-                            </label>
-                          ))}
+                        
+                        <div className="border-t border-gray-200/60 pt-4">
+                          <div className="flex justify-between items-center mb-3">
+                            <span className="text-xs font-bold text-gray-700">対象スタッフ (個人ごとのタスク)</span>
+                            <button 
+                              onClick={() => {
+                                const targets = (settings.staffs || []).filter(s => shareForm.targetShopId === 'all' || s.shopId === shareForm.targetShopId).map(s=>s.id);
+                                setShareForm({...shareForm, targetStaffIds: (shareForm.targetStaffIds || []).length === targets.length ? [] : targets});
+                              }} 
+                              className="text-[10px] bg-white px-2 py-1 rounded shadow-sm font-bold text-gray-600 active:bg-gray-100"
+                            >
+                              全員選択
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto hide-scroll">
+                            {(settings.staffs || []).filter(s => shareForm.targetShopId === 'all' || s.shopId === shareForm.targetShopId).map(s => (
+                              <label key={s.id} className="flex items-center space-x-2 text-sm bg-white p-2 rounded-xl">
+                                <input 
+                                  type="checkbox" 
+                                  checked={(shareForm.targetStaffIds || []).includes(s.id)} 
+                                  onChange={(e) => {
+                                    const newIds = e.target.checked ? [...(shareForm.targetStaffIds || []), s.id] : (shareForm.targetStaffIds || []).filter(id=>id!==s.id);
+                                    setShareForm({...shareForm, targetStaffIds: newIds});
+                                  }}
+                                  className="rounded text-gray-900 focus:ring-gray-900 border-gray-300"
+                                />
+                                <span className="text-gray-700 font-medium truncate">{s.name}</span>
+                              </label>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     )}
@@ -1317,7 +1422,7 @@
                     const isTask = share.type === 'task';
                     const isShift = share.type === 'shift';
                     const isGoal = share.type === 'goal';
-                    const isExpired = share.deadline && share.deadline < new Date().toISOString().split('T')[0];
+                    const isExpired = share.deadline && share.deadline < getLocalDateString();
 
                     const typeColors = { task: 'bg-blue-50 text-blue-600', shift: 'bg-emerald-50 text-emerald-600', goal: 'bg-orange-50 text-orange-600' };
                     const typeLabels = { task: 'タスク', shift: '希望休', goal: '個人目標' };
@@ -1348,24 +1453,50 @@
 
                         {/* タスクの場合のUI */}
                         {isTask && (
-                          <div className="bg-[#f2f2f7] p-4 rounded-2xl mt-4">
-                            <p className="text-xs font-bold text-gray-500 mb-3">対象スタッフの完了状況</p>
-                            <div className="flex flex-wrap gap-2">
-                              {share.targetStaffIds?.map(staffId => {
-                                const staffName = (settings.staffs || []).find(s => s.id === staffId)?.name || '不明';
-                                const isCompleted = share.completedStaffIds?.includes(staffId);
-                                return (
-                                  <button 
-                                    key={staffId} 
-                                    onClick={() => toggleTaskCompletion(share, staffId)}
-                                    className={`flex items-center px-3 py-1.5 rounded-xl text-sm font-semibold transition-all active:scale-95 ${isCompleted ? 'bg-gray-900 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200'}`}
-                                  >
-                                    {isCompleted ? <CheckSquare size={14} className="mr-1.5 opacity-80" /> : <Square size={14} className="mr-1.5 opacity-50" />}
-                                    {staffName}
-                                  </button>
-                                );
-                              })}
-                            </div>
+                          <div className="bg-[#f2f2f7] p-4 rounded-2xl mt-4 space-y-4">
+                            {share.targetShopIds && share.targetShopIds.length > 0 && (
+                              <div>
+                                <p className="text-xs font-bold text-gray-500 mb-3">対象店舗の完了状況</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {share.targetShopIds.map(shopId => {
+                                    const shopName = (settings.shops || []).find(s => s.id === shopId)?.name || '不明';
+                                    const isCompleted = share.completedShopIds?.includes(shopId);
+                                    return (
+                                      <button 
+                                        key={shopId} 
+                                        onClick={() => toggleShopTaskCompletion(share, shopId)}
+                                        className={`flex items-center px-3 py-1.5 rounded-xl text-sm font-semibold transition-all active:scale-95 ${isCompleted ? 'bg-amber-500 text-white shadow-sm border-transparent' : 'bg-white text-gray-600 border border-gray-200'}`}
+                                      >
+                                        {isCompleted ? <CheckSquare size={14} className="mr-1.5 opacity-90" /> : <Square size={14} className="mr-1.5 opacity-50" />}
+                                        {shopName}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {share.targetStaffIds && share.targetStaffIds.length > 0 && (
+                              <div className={share.targetShopIds && share.targetShopIds.length > 0 ? "pt-4 border-t border-gray-200/60" : ""}>
+                                <p className="text-xs font-bold text-gray-500 mb-3">対象スタッフの完了状況</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {share.targetStaffIds.map(staffId => {
+                                    const staffName = (settings.staffs || []).find(s => s.id === staffId)?.name || '不明';
+                                    const isCompleted = share.completedStaffIds?.includes(staffId);
+                                    return (
+                                      <button 
+                                        key={staffId} 
+                                        onClick={() => toggleTaskCompletion(share, staffId)}
+                                        className={`flex items-center px-3 py-1.5 rounded-xl text-sm font-semibold transition-all active:scale-95 ${isCompleted ? 'bg-gray-900 text-white shadow-md border-transparent' : 'bg-white text-gray-600 border border-gray-200'}`}
+                                      >
+                                        {isCompleted ? <CheckSquare size={14} className="mr-1.5 opacity-80" /> : <Square size={14} className="mr-1.5 opacity-50" />}
+                                        {staffName}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
 
