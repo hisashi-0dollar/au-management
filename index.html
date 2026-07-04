@@ -77,12 +77,26 @@
 
       const dataSince = useMemo(() => {
         if (tab === 'analytics') {
-          const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d.getTime();
+          const d = new Date();
+          d.setDate(1);
+          d.setHours(0, 0, 0, 0);
+          return d.getTime();
         }
-        const d = new Date(); d.setDate(d.getDate() - 14); d.setHours(0, 0, 0, 0); return d.getTime();
+        const d = new Date();
+        d.setDate(d.getDate() - 14);
+        d.setHours(0, 0, 0, 0);
+        return d.getTime();
       }, [tab]);
 
-      const defaultSettings = { adminPassword: '0000', shops: [], staffs: [], products: [], otherStats: [], taskTemplates: [], gasUrl: GAS_URL };
+      const defaultSettings = {
+        adminPassword: '0000',
+        shops: [],
+        staffs: [],
+        products: [],
+        otherStats: [],
+        taskTemplates: [],
+        gasUrl: GAS_URL
+      };
 
       useEffect(() => {
         const id = typeof __app_id !== 'undefined' ? __app_id : 'au-shop-app';
@@ -107,14 +121,21 @@
         setDb(database);
 
         if (!isSandbox && config.measurementId) {
-          isSupported().then((supported) => { if (supported) getAnalytics(app); }).catch(() => {});
+          isSupported().then((supported) => {
+            if (supported) getAnalytics(app);
+          }).catch((err) => console.warn("Analytics not supported:", err));
         }
 
         const initAuth = async () => {
           try {
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
-            else await signInAnonymously(auth);
-          } catch (err) { console.error('Auth error:', err); }
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+              await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+              await signInAnonymously(auth);
+            }
+          } catch (err) {
+            console.error('Auth error:', err);
+          }
         };
         initAuth();
 
@@ -131,29 +152,48 @@
           const data = await res.json();
           const normalizedData = data.map(r => {
             let dStr = r.date || '';
-            if (dStr.includes('T')) dStr = getLocalDateString(new Date(dStr));
-            return { ...r, date: dStr, shopId: String(r.shopId || ''), staffId: String(r.staffId || ''), productId: String(r.productId || ''), otherStatId: String(r.otherStatId || '') };
+            if (dStr.includes('T')) {
+              dStr = getLocalDateString(new Date(dStr));
+            }
+            return { 
+              ...r, 
+              date: dStr,
+              shopId: r.shopId ? String(r.shopId) : '',
+              staffId: r.staffId ? String(r.staffId) : '',
+              productId: r.productId ? String(r.productId) : '',
+              otherStatId: r.otherStatId ? String(r.otherStatId) : ''
+            };
           });
           setRecords(normalizedData);
-        } catch (e) { console.error("GAS fetch error:", e); }
+        } catch (e) {
+          console.error("GAS fetch error:", e);
+        }
       };
 
       useEffect(() => {
         if (!user || !db) return;
         const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'main');
         const unsubSettings = onSnapshot(settingsRef, (snap) => {
-          if (snap.exists()) setSettings(snap.data()); else setDoc(settingsRef, defaultSettings);
+          if (snap.exists()) setSettings(snap.data());
+          else setDoc(settingsRef, defaultSettings);
         });
+
         const sharesRef = collection(db, 'artifacts', appId, 'public', 'data', 'shares');
-        const unsubShares = onSnapshot(sharesRef, (snap) => setShares(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+        const unsubShares = onSnapshot(sharesRef, (snap) => {
+          setShares(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+
         const tasksRef = collection(db, 'artifacts', appId, 'public', 'data', 'tasks');
-        const unsubTasks = onSnapshot(tasksRef, (snap) => setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+        const unsubTasks = onSnapshot(tasksRef, (snap) => {
+          setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
 
         return () => { unsubSettings(); unsubShares(); unsubTasks(); };
       }, [user, db, appId]);
 
       useEffect(() => {
         if (!db || !settings.taskTemplates || settings.taskTemplates.length === 0) return;
+        
         const timer = setInterval(() => {
           const now = new Date();
           const currentTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -163,6 +203,7 @@
 
           settings.taskTemplates.forEach(template => {
             let shouldGenerate = false;
+            
             if (template.time && currentTimeStr >= template.time) {
               if (template.scheduleType === 'daily') shouldGenerate = true;
               else if (template.scheduleType === 'weekly' && String(template.scheduleValue) === currentDayOfWeek) shouldGenerate = true;
@@ -176,93 +217,162 @@
               if (isAll) {
                 const taskId = `task_${template.id}_all_${todayStr}`;
                 if (!tasks.some(t => t.id === taskId)) {
-                   setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId), { title: template.title, targetShopId: 'all', timestamp: Date.now(), templateId: template.id }).catch(()=>{});
+                   setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId), {
+                     title: template.title,
+                     targetShopId: 'all',
+                     timestamp: Date.now(),
+                     templateId: template.id,
+                     isCompleted: false
+                   }).catch(e => console.error(e));
                 }
               }
 
               shopIds.forEach(shopId => {
                 const taskId = `task_${template.id}_${shopId}_${todayStr}`;
                 if (!tasks.some(t => t.id === taskId)) {
-                   setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId), { title: template.title, targetShopId: shopId, timestamp: Date.now(), templateId: template.id }).catch(()=>{});
+                   setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId), {
+                     title: template.title,
+                     targetShopId: shopId,
+                     timestamp: Date.now(),
+                     templateId: template.id,
+                     isCompleted: false
+                   }).catch(e => console.error(e));
                 }
               });
             }
           });
         }, 60000);
+
         return () => clearInterval(timer);
       }, [db, appId, settings.taskTemplates, tasks]);
 
       useEffect(() => {
         if (!user || !db || !settings) return;
-        if (settings.gasUrl) {
+        const url = settings.gasUrl || GAS_URL;
+
+        if (url) {
           fetchRecordsFromGas(dataSince);
           const timer = setInterval(() => fetchRecordsFromGas(dataSince), 15000);
           return () => clearInterval(timer);
         } else {
           const recordsRef = collection(db, 'artifacts', appId, 'public', 'data', 'records');
           const q = query(recordsRef, where("timestamp", ">=", dataSince));
-          const unsubRecords = onSnapshot(q, (snap) => setRecords(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+          const unsubRecords = onSnapshot(q, (snap) => {
+            setRecords(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+          });
           return () => unsubRecords();
         }
       }, [user, db, appId, dataSince, settings.gasUrl]);
 
-      const showMsg = (text, type = 'success') => { setMsg({ text, type }); setTimeout(() => setMsg({ text: '', type: '' }), 3000); };
+      const showMsg = (text, type = 'success') => {
+        setMsg({ text, type });
+        setTimeout(() => setMsg({ text: '', type: '' }), 3000);
+      };
 
       const [recForm, setRecForm] = useState({ date: getLocalDateString(), shopId: '', staffId: '' });
       const [selectedItems, setSelectedItems] = useState({});
       const [otherCounts, setOtherCounts] = useState({});
 
-      const toggleItem = (pId, item) => setSelectedItems(prev => { const arr = prev[pId] || []; return { ...prev, [pId]: arr.includes(item) ? arr.filter(i => i !== item) : [...arr, item] }; });
-      const handleOtherCount = (osId, item, change) => setOtherCounts(prev => { const currentOS = prev[osId] || {}; const currentCount = currentOS[item] || 0; return { ...prev, [osId]: { ...currentOS, [item]: Math.max(0, currentCount + change) } }; });
+      const toggleItem = (pId, item) => {
+        setSelectedItems(prev => {
+          const arr = prev[pId] || [];
+          return { ...prev, [pId]: arr.includes(item) ? arr.filter(i => i !== item) : [...arr, item] };
+        });
+      };
+
+      const handleOtherCount = (osId, item, change) => {
+        setOtherCounts(prev => {
+          const currentOS = prev[osId] || {};
+          const currentCount = currentOS[item] || 0;
+          const nextCount = Math.max(0, currentCount + change);
+          return { ...prev, [osId]: { ...currentOS, [item]: nextCount } };
+        });
+      };
 
       const submitProductRecords = async () => {
         if (!recForm.shopId || !recForm.staffId) return showMsg('店舗とスタッフを選択してください', 'error');
         const productsToSubmit = Object.keys(selectedItems).filter(pId => selectedItems[pId] && selectedItems[pId].length > 0);
         if (productsToSubmit.length === 0) return showMsg('少なくとも1つの商材で項目を選択してください', 'error');
+        
         try {
           const shopName = (settings.shops || []).find(s => s.id === recForm.shopId)?.name || '不明';
           const staffName = (settings.staffs || []).find(s => s.id === recForm.staffId)?.name || '不明';
+
           const newRecords = productsToSubmit.map(pId => {
             const product = (settings.products || []).find(p => p.id === pId);
-            return { id: Date.now().toString(36) + Math.random().toString(36).substring(2), date: recForm.date, shopId: recForm.shopId, staffId: recForm.staffId, productId: pId, itemIds: selectedItems[pId], timestamp: Date.now(), shopName, staffName, productName: product?.name || '不明' };
+            return {
+              id: Date.now().toString(36) + Math.random().toString(36).substring(2),
+              date: recForm.date, shopId: recForm.shopId, staffId: recForm.staffId, 
+              productId: pId, itemIds: selectedItems[pId], timestamp: Date.now(),
+              shopName: shopName, staffName: staffName, productName: product?.name || '不明'
+            };
           });
+
           const url = settings.gasUrl || GAS_URL;
           if (url) {
-            const res = await fetch(url, { method: 'POST', mode: 'cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'addRecords', records: newRecords }) });
-            if(!res.ok) throw new Error("Network error");
+            const res = await fetch(url, { 
+              method: 'POST', 
+              mode: 'cors',
+              redirect: 'follow',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ action: 'addRecords', records: newRecords }) 
+            });
+            if(!res.ok) throw new Error("Network response was not ok");
+            const result = await res.json();
+            if(!result.success) throw new Error("GAS returned error: " + result.error);
             fetchRecordsFromGas(dataSince);
           } else {
             const recordsRef = collection(db, 'artifacts', appId, 'public', 'data', 'records');
-            await Promise.all(newRecords.map(r => addDoc(recordsRef, r)));
+            const promises = newRecords.map(r => addDoc(recordsRef, r));
+            await Promise.all(promises);
           }
-          showMsg('商材実績を登録しました'); setSelectedItems({}); 
-        } catch (err) { showMsg('登録できませんでした。再度お試しください', 'error'); }
+          showMsg('商材実績を登録しました');
+          setSelectedItems({}); 
+        } catch (err) { showMsg('登録できませんでした。再度、登録をしてください', 'error'); console.error(err); }
       };
 
       const submitOtherRecords = async () => {
         if (!recForm.shopId || !recForm.staffId) return showMsg('店舗とスタッフを選択してください', 'error');
         const statsToSubmit = Object.keys(otherCounts).filter(osId => otherCounts[osId] && Object.values(otherCounts[osId]).some(v => v > 0));
         if (statsToSubmit.length === 0) return showMsg('件数が入力されていません', 'error');
+        
         try {
           const shopName = (settings.shops || []).find(s => s.id === recForm.shopId)?.name || '不明';
           const staffName = (settings.staffs || []).find(s => s.id === recForm.staffId)?.name || '不明';
+
           const newRecords = statsToSubmit.map(osId => {
             const otherStat = (settings.otherStats || []).find(os => os.id === osId);
             const filteredCounts = {};
             Object.keys(otherCounts[osId]).forEach(k => { if (otherCounts[osId][k] > 0) filteredCounts[k] = otherCounts[osId][k]; });
-            return { id: Date.now().toString(36) + Math.random().toString(36).substring(2), date: recForm.date, shopId: recForm.shopId, staffId: recForm.staffId, otherStatId: osId, counts: filteredCounts, timestamp: Date.now(), shopName, staffName, productName: otherStat?.subCategory || '不明' };
+            return {
+              id: Date.now().toString(36) + Math.random().toString(36).substring(2),
+              date: recForm.date, shopId: recForm.shopId, staffId: recForm.staffId, 
+              otherStatId: osId, counts: filteredCounts, timestamp: Date.now(),
+              shopName: shopName, staffName: staffName, productName: otherStat?.subCategory || '不明'
+            };
           });
+
           const url = settings.gasUrl || GAS_URL;
           if (url) {
-            const res = await fetch(url, { method: 'POST', mode: 'cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'addRecords', records: newRecords }) });
-            if(!res.ok) throw new Error("Network error");
+            const res = await fetch(url, { 
+              method: 'POST', 
+              mode: 'cors',
+              redirect: 'follow',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ action: 'addRecords', records: newRecords }) 
+            });
+            if(!res.ok) throw new Error("Network response was not ok");
+            const result = await res.json();
+            if(!result.success) throw new Error("GAS returned error: " + result.error);
             fetchRecordsFromGas(dataSince);
           } else {
             const recordsRef = collection(db, 'artifacts', appId, 'public', 'data', 'records');
-            await Promise.all(newRecords.map(r => addDoc(recordsRef, r)));
+            const promises = newRecords.map(r => addDoc(recordsRef, r));
+            await Promise.all(promises);
           }
-          showMsg('その他実績を登録しました'); setOtherCounts({}); 
-        } catch (err) { showMsg('登録できませんでした。再度お試しください', 'error'); }
+          showMsg('その他実績を登録しました');
+          setOtherCounts({}); 
+        } catch (err) { showMsg('登録できませんでした。再度、登録をしてください', 'error'); console.error(err); }
       };
 
       const currentWeekRecords = useMemo(() => {
@@ -277,7 +387,6 @@
         return records.filter(r => r.date >= startStr && r.date <= endStr);
       }, [records]);
 
-      // ★複数選択のランキング計算（項目ごとに別々のランキングとして分割）
       const rankings = useMemo(() => {
         const prodRankings = (settings.products || []).flatMap(product => {
           const rItems = Array.isArray(product.rankingItems) ? product.rankingItems : (product.rankingItem ? [product.rankingItem] : []);
@@ -331,9 +440,15 @@
         return shares.filter(s => {
           if (s.deadline && s.deadline < today) return false;
           if (s.type === 'task') {
-            const tStaffs = s.targetStaffIds || []; const cStaffs = s.completedStaffIds || [];
-            const tShops = s.targetShopIds || []; const cShops = s.completedShopIds || [];
-            return (tStaffs.length > 0 && cStaffs.length < tStaffs.length) || (tShops.length > 0 && cShops.length < tShops.length);
+            const tStaffs = s.targetStaffIds || [];
+            const cStaffs = s.completedStaffIds || [];
+            const tShops = s.targetShopIds || [];
+            const cShops = s.completedShopIds || [];
+            
+            const isStaffPending = tStaffs.length > 0 && cStaffs.length < tStaffs.length;
+            const isShopPending = tShops.length > 0 && cShops.length < tShops.length;
+            
+            return isStaffPending || isShopPending;
           } else if (s.type === 'shift') {
             const submitted = Object.keys(s.shiftRequests || {});
             const staffCount = (settings.staffs || []).filter(st => s.targetShopId === 'all' || st.shopId === s.targetShopId).length;
@@ -372,7 +487,8 @@
 
       const tableData = useMemo(() => {
         if (dataType !== 'product') return null;
-        let targetProducts = []; const productsList = settings.products || [];
+        let targetProducts = [];
+        const productsList = settings.products || [];
         if (analyticsCategory === 'all') targetProducts = analyticsProductId === 'all' ? productsList : productsList.filter(p => p.id === analyticsProductId);
         else {
           const catProducts = productsList.filter(p => p.category === analyticsCategory);
@@ -382,30 +498,31 @@
         
         const targetProductIds = targetProducts.map(p => String(p.id));
         const targetRecords = filteredRecords.filter(r => targetProductIds.includes(String(r.productId)));
-        const allItemsSet = new Set(); targetProducts.forEach(p => p.items.forEach(item => allItemsSet.add(item)));
+        const allItemsSet = new Set();
+        targetProducts.forEach(p => p.items.forEach(item => allItemsSet.add(item)));
         const columns = Array.from(allItemsSet);
 
         let data = (settings.staffs || []).map(staff => {
           const staffRecords = targetRecords.filter(r => String(r.staffId) === String(staff.id));
-          const total = staffRecords.length; let rankingCount = 0; let rankingDetails = [];
-          
+          const total = staffRecords.length;
+          let rankingCount = 0; let rankingDetails = [];
           targetProducts.forEach(p => {
             const rItems = Array.isArray(p.rankingItems) ? p.rankingItems : (p.rankingItem ? [p.rankingItem] : []);
-            if (rItems.length > 0) {
-              let count = 0;
-              staffRecords.filter(r => String(r.productId) === String(p.id)).forEach(r => {
-                 if(r.itemIds) { r.itemIds.forEach(id => { if(rItems.includes(id)) count++; }); }
-                 else if(rItems.includes(r.itemId)) count++;
-              });
+            rItems.forEach(rItem => {
+              const count = staffRecords.filter(r => String(r.productId) === String(p.id) && (r.itemIds?.includes(rItem) || r.itemId === rItem)).length;
               rankingCount += count;
-              if (count > 0) rankingDetails.push({ name: p.name, itemName: rItems.join(', '), count });
-            }
+              rankingDetails.push({ name: p.name, itemName: rItem, count });
+            });
           });
           let row = { staffId: staff.id, staffName: staff.name, shopName: (settings.shops || []).find(s => s.id === staff.shopId)?.name || '', total, rankingCount, rankingDetails };
           columns.forEach(item => { row[`item_${item}`] = staffRecords.filter(r => r.itemIds?.includes(item) || r.itemId === item).length; });
           return row;
         });
-        if (sortConfig.key) data.sort((a, b) => { if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1; if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1; return 0; });
+        if (sortConfig.key) data.sort((a, b) => {
+          if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1;
+          if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1;
+          return 0;
+        });
         return { columns, data };
       }, [filteredRecords, dataType, analyticsCategory, analyticsProductId, settings.staffs, settings.shops, settings.products, sortConfig]);
 
@@ -417,7 +534,8 @@
         
         const targetStatIds = targetStats.map(os => String(os.id));
         const targetRecords = filteredRecords.filter(r => targetStatIds.includes(String(r.otherStatId)));
-        const allItemsSet = new Set(); targetStats.forEach(os => os.items.forEach(item => allItemsSet.add(item)));
+        const allItemsSet = new Set();
+        targetStats.forEach(os => os.items.forEach(item => allItemsSet.add(item)));
         const columns = Array.from(allItemsSet);
 
         let data = (settings.staffs || []).map(staff => {
@@ -425,60 +543,95 @@
           let rankingCount = 0; let rankingDetails = [];
           targetStats.forEach(os => {
             const rItems = Array.isArray(os.rankingItems) ? os.rankingItems : (os.rankingItem ? [os.rankingItem] : []);
-            if (rItems.length > 0) {
+            rItems.forEach(rItem => {
               const osRecords = staffRecords.filter(r => String(r.otherStatId) === String(os.id));
-              let count = 0; 
-              osRecords.forEach(r => { if (r.counts) { rItems.forEach(ri => { if(r.counts[ri]) count += r.counts[ri]; }); } });
+              let count = 0; osRecords.forEach(r => { if (r.counts && r.counts[rItem]) count += r.counts[rItem]; });
               rankingCount += count;
-              if (count > 0) rankingDetails.push({ name: os.subCategory, itemName: rItems.join(', '), count });
-            }
+              rankingDetails.push({ name: os.subCategory, itemName: rItem, count });
+            });
           });
           let row = { staffId: staff.id, staffName: staff.name, shopName: (settings.shops || []).find(s => s.id === staff.shopId)?.name || '', total: 0, rankingCount, rankingDetails };
-          columns.forEach(item => { let count = 0; staffRecords.forEach(r => { if (r.counts && r.counts[item]) count += r.counts[item]; }); row[`item_${item}`] = count; row.total += count; });
+          columns.forEach(item => {
+            let count = 0; staffRecords.forEach(r => { if (r.counts && r.counts[item]) count += r.counts[item]; });
+            row[`item_${item}`] = count; row.total += count;
+          });
           return row;
         });
-        if (sortConfig.key) data.sort((a, b) => { if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1; if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1; return 0; });
+        if (sortConfig.key) data.sort((a, b) => {
+          if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1;
+          if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1;
+          return 0;
+        });
         return { columns, data };
       }, [filteredRecords, dataType, analyticsOtherMainCategory, analyticsOtherSubCategory, settings.staffs, settings.shops, settings.otherStats, sortConfig]);
 
       const currentTableData = dataType === 'product' ? tableData : otherTableData;
-      const requestSort = (key) => { let direction = 'desc'; if (sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc'; setSortConfig({ key, direction }); };
+      const requestSort = (key) => {
+        let direction = 'desc';
+        if (sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
+        setSortConfig({ key, direction });
+      };
 
       const deleteRecord = async (id) => {
         try { 
           const url = settings.gasUrl || GAS_URL;
           if (url) {
-            await fetch(url, { method: 'POST', mode: 'cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'deleteRecord', id: id }) });
+            const res = await fetch(url, { 
+              method: 'POST', 
+              mode: 'cors',
+              redirect: 'follow',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ action: 'deleteRecord', id: id }) 
+            });
+            if(!res.ok) throw new Error("Network response was not ok");
+            const result = await res.json();
+            if(!result.success) throw new Error("GAS returned error: " + result.error);
             fetchRecordsFromGas(dataSince);
-          } else { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'records', id)); }
+          } else {
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'records', id)); 
+          }
           showMsg('実績を削除しました'); 
-        } catch (e) { showMsg('削除できませんでした。', 'error'); }
+        } 
+        catch (e) { showMsg('削除できませんでした。再度お試しください', 'error'); }
       };
 
       const [isCreatingShare, setIsCreatingShare] = useState(false);
       const [editingShareId, setEditingShareId] = useState(null);
-      const [shareForm, setShareForm] = useState({ type: 'task', targetShopId: 'all', creatorStaffId: '', title: '', content: '', deadline: '', targetStaffIds: [], targetShopIds: [], goals: {}, targetMonth: getLocalMonthString() });
+      
+      const [shareForm, setShareForm] = useState({
+        type: 'task', targetShopId: 'all', creatorStaffId: '', title: '', content: '', deadline: '', targetStaffIds: [], targetShopIds: [], goals: {}, targetMonth: getLocalMonthString()
+      });
       const [shiftInput, setShiftInput] = useState({ shareId: '', staffId: '', dates: '' });
+      
       const [goalForms, setGoalForms] = useState({});
 
       const updateGoalForm = (shareId, field, value) => {
         setGoalForms(prev => {
           const current = prev[shareId] || { staffId: '', values: {} };
-          if (field === 'staffId') return { ...prev, [shareId]: { ...current, staffId: value } };
-          return { ...prev, [shareId]: { ...current, values: { ...current.values, [field]: value } } };
+          if (field === 'staffId') {
+            return { ...prev, [shareId]: { ...current, staffId: value } };
+          } else {
+            return { ...prev, [shareId]: { ...current, values: { ...current.values, [field]: value } } };
+          }
         });
       };
 
       const submitGoalForm = async (shareId) => {
         const form = goalForms[shareId];
         if (!form || !form.staffId) return showMsg('自分の名前を選択してください', 'error');
-        if (!Object.values(form.values).some(v => v !== '' && v !== null && !isNaN(v))) return showMsg('目標値を少なくとも1つは入力してください', 'error');
-        const share = shares.find(s => s.id === shareId); if (!share) return;
+        
+        const hasValue = Object.values(form.values).some(v => v !== '' && v !== null && !isNaN(v));
+        if (!hasValue) return showMsg('目標値を少なくとも1つは入力してください', 'error');
+
+        const share = shares.find(s => s.id === shareId);
+        if (!share) return;
+
         try {
           const newGoals = { ...(share.goals || {}) };
           newGoals[form.staffId] = { ...form.values, isCompleted: newGoals[form.staffId]?.isCompleted || false };
           await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', shareId), { goals: newGoals, timestamp: Date.now() });
-          showMsg('個人目標を提出しました'); setGoalForms(prev => ({ ...prev, [shareId]: { staffId: '', values: {} } }));
+          showMsg('個人目標を提出しました');
+          setGoalForms(prev => ({ ...prev, [shareId]: { staffId: '', values: {} } }));
         } catch(e) { showMsg('提出失敗', 'error'); }
       };
 
@@ -490,84 +643,163 @@
         } catch (e) { showMsg('更新失敗', 'error'); }
       };
 
-      const resetShareForm = () => { setIsCreatingShare(false); setEditingShareId(null); setShareForm({ type: 'task', targetShopId: 'all', creatorStaffId: '', title: '', content: '', deadline: '', targetStaffIds: [], targetShopIds: [], goals: {}, targetMonth: getLocalMonthString() }); };
+      const resetShareForm = () => {
+        setIsCreatingShare(false);
+        setEditingShareId(null);
+        setShareForm({ type: 'task', targetShopId: 'all', creatorStaffId: '', title: '', content: '', deadline: '', targetStaffIds: [], targetShopIds: [], goals: {}, targetMonth: getLocalMonthString() });
+      };
 
       const submitShare = async () => {
         if (!shareForm.creatorStaffId || !shareForm.title) return showMsg('作成者とタイトルは必須です', 'error');
-        if (shareForm.type === 'task' && shareForm.targetStaffIds.length === 0 && shareForm.targetShopIds.length === 0) return showMsg('対象を選択してください', 'error');
+        if (shareForm.type === 'task' && shareForm.targetStaffIds.length === 0 && shareForm.targetShopIds.length === 0) return showMsg('対象のスタッフまたは店舗を選択してください', 'error');
+        
         try {
-          if (editingShareId) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', editingShareId), { ...shareForm, timestamp: Date.now() });
-          else await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'shares'), { ...shareForm, timestamp: Date.now(), completedStaffIds: [], completedShopIds: [], shiftRequests: {} });
-          showMsg(editingShareId ? '共有を更新しました' : '共有を投稿しました'); resetShareForm();
+          if (editingShareId) {
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', editingShareId), {
+              ...shareForm, timestamp: Date.now()
+            });
+            showMsg('共有事項を更新しました');
+          } else {
+            const sharesRef = collection(db, 'artifacts', appId, 'public', 'data', 'shares');
+            await addDoc(sharesRef, {
+              ...shareForm, timestamp: Date.now(), completedStaffIds: [], completedShopIds: [], shiftRequests: {}
+            });
+            showMsg('共有事項を投稿しました');
+          }
+          resetShareForm();
         } catch (err) { showMsg('保存に失敗しました', 'error'); }
       };
 
       const editShare = (share) => {
-        setShareForm({ type: share.type || 'task', targetShopId: share.targetShopId || 'all', creatorStaffId: share.creatorStaffId || '', title: share.title || '', content: share.content || '', deadline: share.deadline || '', targetStaffIds: share.targetStaffIds || [], targetShopIds: share.targetShopIds || [], goals: share.goals || {}, targetMonth: share.targetMonth || getLocalMonthString() });
-        setEditingShareId(share.id); setIsCreatingShare(true); window.scrollTo({ top: 0, behavior: 'smooth' });
+        setShareForm({
+          type: share.type || 'task',
+          targetShopId: share.targetShopId || 'all',
+          creatorStaffId: share.creatorStaffId || '',
+          title: share.title || '',
+          content: share.content || '',
+          deadline: share.deadline || '',
+          targetStaffIds: share.targetStaffIds || [],
+          targetShopIds: share.targetShopIds || [],
+          goals: share.goals || {},
+          targetMonth: share.targetMonth || getLocalMonthString()
+        });
+        setEditingShareId(share.id);
+        setIsCreatingShare(true);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       };
 
-      const deleteShare = async (id) => { try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', id)); showMsg('投稿を削除しました'); } catch (e) { showMsg('削除失敗', 'error'); } };
-      const toggleTaskCompletion = async (share, staffId) => { const completed = share.completedStaffIds || []; const newCompleted = completed.includes(staffId) ? completed.filter(id => id !== staffId) : [...completed, staffId]; try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', share.id), { completedStaffIds: newCompleted, timestamp: Date.now() }); } catch (err) { showMsg('更新失敗', 'error'); } };
-      const toggleShopTaskCompletion = async (share, shopId) => { const completed = share.completedShopIds || []; const newCompleted = completed.includes(shopId) ? completed.filter(id => id !== shopId) : [...completed, shopId]; try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', share.id), { completedShopIds: newCompleted, timestamp: Date.now() }); } catch (err) { showMsg('更新失敗', 'error'); } };
+      const deleteShare = async (id) => {
+        try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', id)); showMsg('投稿を削除しました'); } 
+        catch (e) { showMsg('削除失敗', 'error'); }
+      };
+
+      const toggleTaskCompletion = async (share, staffId) => {
+        const completed = share.completedStaffIds || [];
+        const isCompleted = completed.includes(staffId);
+        const newCompleted = isCompleted ? completed.filter(id => id !== staffId) : [...completed, staffId];
+        try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', share.id), { completedStaffIds: newCompleted, timestamp: Date.now() }); } 
+        catch (err) { showMsg('更新に失敗しました', 'error'); }
+      };
+
+      const toggleShopTaskCompletion = async (share, shopId) => {
+        const completed = share.completedShopIds || [];
+        const isCompleted = completed.includes(shopId);
+        const newCompleted = isCompleted ? completed.filter(id => id !== shopId) : [...completed, shopId];
+        try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', share.id), { completedShopIds: newCompleted, timestamp: Date.now() }); } 
+        catch (err) { showMsg('更新に失敗しました', 'error'); }
+      };
 
       const submitShift = async (shareId) => {
         if (!shiftInput.staffId || !shiftInput.dates) return showMsg('名前と希望日を入力してください', 'error');
-        const share = shares.find(s => s.id === shareId); if (!share) return;
+        const share = shares.find(s => s.id === shareId);
+        if (!share) return;
         try {
-          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', shareId), { shiftRequests: { ...(share.shiftRequests || {}), [shiftInput.staffId]: shiftInput.dates }, timestamp: Date.now() });
-          showMsg('希望休を提出しました'); setShiftInput({ shareId: '', staffId: '', dates: '' });
-        } catch (err) { showMsg('提出失敗', 'error'); }
+          const newRequests = { ...(share.shiftRequests || {}), [shiftInput.staffId]: shiftInput.dates };
+          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', shareId), { shiftRequests: newRequests, timestamp: Date.now() });
+          showMsg('希望休を提出しました');
+          setShiftInput({ shareId: '', staffId: '', dates: '' });
+        } catch (err) { showMsg('提出に失敗しました', 'error'); }
       };
 
+      // 7日経過した共有の自動削除
       useEffect(() => {
         if (!db || shares.length === 0) return;
-        const now = Date.now(); const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+        const now = Date.now();
+        const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+
         shares.forEach(share => {
           let isCompleted = false;
+
           if (share.type === 'task') {
-            const tStaffs = share.targetStaffIds || []; const cStaffs = share.completedStaffIds || [];
-            const tShops = share.targetShopIds || []; const cShops = share.completedShopIds || [];
+            const tStaffs = share.targetStaffIds || [];
+            const cStaffs = share.completedStaffIds || [];
+            const tShops = share.targetShopIds || [];
+            const cShops = share.completedShopIds || [];
+            
             const staffCompleted = tStaffs.length === 0 || tStaffs.every(id => cStaffs.includes(id));
             const shopCompleted = tShops.length === 0 || tShops.every(id => cShops.includes(id));
-            if ((tStaffs.length > 0 || tShops.length > 0) && staffCompleted && shopCompleted) isCompleted = true;
+            
+            if ((tStaffs.length > 0 || tShops.length > 0) && staffCompleted && shopCompleted) {
+              isCompleted = true;
+            }
           } else if (share.type === 'shift') {
             const submittedCount = Object.keys(share.shiftRequests || {}).length;
             const targetStaffCount = (settings.staffs || []).filter(st => share.targetShopId === 'all' || st.shopId === share.targetShopId).length;
-            if (targetStaffCount > 0 && submittedCount >= targetStaffCount) isCompleted = true;
+            if (targetStaffCount > 0 && submittedCount >= targetStaffCount) {
+              isCompleted = true;
+            }
           } else if (share.type === 'goal') {
-            const goals = share.goals || {}; const completedCount = Object.values(goals).filter(g => g.isCompleted).length;
+            const goals = share.goals || {};
+            const completedCount = Object.values(goals).filter(g => g.isCompleted).length;
             const targetStaffCount = (settings.staffs || []).filter(st => share.targetShopId === 'all' || st.shopId === share.targetShopId).length;
-            if (targetStaffCount > 0 && completedCount >= targetStaffCount) isCompleted = true;
+            if (targetStaffCount > 0 && completedCount >= targetStaffCount) {
+              isCompleted = true;
+            }
           }
-          if (isCompleted && (now - share.timestamp > SEVEN_DAYS)) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', share.id)).catch(()=>{});
+
+          if (isCompleted && (now - share.timestamp > SEVEN_DAYS)) {
+            deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', share.id)).catch(e => console.log('Auto delete skipped'));
+          }
         });
       }, [shares, settings.staffs, db, appId]);
+
+      const [isAuthenticatedSettings, setIsAuthenticatedSettings] = useState(false);
+      const [inputPassword, setInputPassword] = useState('');
+      const [newPassword, setNewPassword] = useState('');
+      const [newGasUrl, setNewGasUrl] = useState(GAS_URL);
 
       const [taskTab, setTaskTab] = useState('list');
       const [newTaskForm, setNewTaskForm] = useState({ title: '', isAll: true, shopIds: [] });
       const [templateForm, setTemplateForm] = useState({ id: '', title: '', isAllTarget: true, targetShopIds: [], scheduleType: 'daily', scheduleValue: '1', time: '09:00' });
 
-      const completeTask = async (taskId) => { try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId)); showMsg('タスクを完了しました'); } catch(e) { showMsg('エラー', 'error'); } };
+      const completeTask = async (taskId) => {
+        try {
+          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId), { isCompleted: true, timestamp: Date.now() });
+          showMsg('タスクを完了しました');
+        } catch(e) { showMsg('エラーが発生しました', 'error'); }
+      };
 
       const addSingleTask = async () => {
-        if (!newTaskForm.title) return showMsg('タスク名を入力', 'error');
+        if (!newTaskForm.title) return showMsg('タスク名を入力してください', 'error');
         if (!newTaskForm.isAll && newTaskForm.shopIds.length === 0) return showMsg('対象を選択してください', 'error');
         try {
           const promises = [];
           if (newTaskForm.isAll) {
-            promises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', `single_${Date.now()}_all`), { title: newTaskForm.title, targetShopId: 'all', timestamp: Date.now() }));
+            const taskId = `single_${Date.now()}_all`;
+            promises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId), { title: newTaskForm.title, targetShopId: 'all', timestamp: Date.now(), isCompleted: false }));
           }
           newTaskForm.shopIds.forEach(shopId => {
-            promises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', `single_${Date.now()}_${shopId}`), { title: newTaskForm.title, targetShopId: shopId, timestamp: Date.now() }));
+            const taskId = `single_${Date.now()}_${shopId}`;
+            promises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId), { title: newTaskForm.title, targetShopId: shopId, timestamp: Date.now(), isCompleted: false }));
           });
           await Promise.all(promises);
-          setNewTaskForm({ title: '', isAll: true, shopIds: [] }); showMsg('タスクを追加しました');
-        } catch(e) { showMsg('追加失敗', 'error'); }
+          setNewTaskForm({ title: '', isAll: true, shopIds: [] });
+          showMsg('タスクを追加しました');
+        } catch(e) { showMsg('追加に失敗しました', 'error'); }
       };
 
       const saveTemplate = () => {
-        if (!templateForm.title) return showMsg('タスク名を入力', 'error');
+        if (!templateForm.title) return showMsg('タスク名を入力してください', 'error');
         if (!templateForm.isAllTarget && templateForm.targetShopIds.length === 0) return showMsg('対象店舗を選択してください', 'error');
         const isNew = !templateForm.id;
         const newTemplate = { ...templateForm, id: isNew ? Date.now().toString() : templateForm.id };
@@ -578,14 +810,29 @@
       };
       
       const editTemplate = (t) => {
-        setTemplateForm({ id: t.id, title: t.title, isAllTarget: t.isAllTarget !== undefined ? t.isAllTarget : (t.targetShopId === 'all'), targetShopIds: t.targetShopIds || (t.targetShopId && t.targetShopId !== 'all' ? [t.targetShopId] : []), scheduleType: t.scheduleType || 'daily', scheduleValue: t.scheduleValue || '1', time: t.time || '09:00' });
+        setTemplateForm({
+          id: t.id,
+          title: t.title,
+          isAllTarget: t.isAllTarget !== undefined ? t.isAllTarget : (t.targetShopId === 'all'),
+          targetShopIds: t.targetShopIds || (t.targetShopId && t.targetShopId !== 'all' ? [t.targetShopId] : []),
+          scheduleType: t.scheduleType || 'daily',
+          scheduleValue: t.scheduleValue || '1',
+          time: t.time || '09:00'
+        });
         window.scrollTo({ top: 0, behavior: 'smooth' });
       };
 
-      const [isAuthenticatedSettings, setIsAuthenticatedSettings] = useState(false);
-      const [inputPassword, setInputPassword] = useState('');
-      const [newPassword, setNewPassword] = useState('');
-      const [newGasUrl, setNewGasUrl] = useState(GAS_URL);
+      // タスクの7日間経過後の自動削除
+      useEffect(() => {
+        if (!db || tasks.length === 0) return;
+        const now = Date.now();
+        const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+        tasks.forEach(task => {
+          if (task.isCompleted && (now - task.timestamp > SEVEN_DAYS)) {
+            deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', task.id)).catch(e => console.error(e));
+          }
+        });
+      }, [tasks, db, appId]);
 
       const [newShop, setNewShop] = useState('');
       const [newStaff, setNewStaff] = useState({ shopId: '', name: '' });
@@ -597,16 +844,21 @@
       const existingCategories = useMemo(() => Array.from(new Set((settings.products || []).map(p => p.category).filter(Boolean))), [settings.products]);
       const existingOtherMainCategories = useMemo(() => Array.from(new Set((settings.otherStats||[]).map(os => os.mainCategory).filter(Boolean))), [settings.otherStats]);
 
-      useEffect(() => { if (settings.gasUrl) setNewGasUrl(settings.gasUrl); }, [settings.gasUrl]);
+      useEffect(() => {
+        if (settings.gasUrl) setNewGasUrl(settings.gasUrl);
+      }, [settings.gasUrl]);
 
-      const saveSettings = async (newSettingsData) => { try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'main'), newSettingsData); showMsg('設定を更新しました'); } catch (err) { showMsg('更新失敗', 'error'); } };
+      const saveSettings = async (newSettingsData) => {
+        try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'main'), newSettingsData); showMsg('設定を更新しました'); } 
+        catch (err) { showMsg('更新に失敗しました', 'error'); }
+      };
 
       const addShop = () => { if (newShop) { saveSettings({ ...settings, shops: [...(settings.shops || []), { id: Date.now().toString(), name: newShop }] }); setNewShop(''); }};
       const addStaff = () => { if (newStaff.name && newStaff.shopId) { saveSettings({ ...settings, staffs: [...(settings.staffs || []), { id: Date.now().toString(), ...newStaff }] }); setNewStaff({ ...newStaff, name: '' }); }};
       const addProduct = () => {
         if (newProduct.name && newProduct.itemsStr) {
           const items = newProduct.itemsStr.split(',').map(s => s.trim()).filter(s => s);
-          saveSettings({ ...settings, products: [...(settings.products || []), { id: Date.now().toString(), category: newProduct.category || '未分類', name: newProduct.name, rankingItems: items.length > 0 ? [items[0]] : [], goalItems: [], items }] });
+          saveSettings({ ...settings, products: [...(settings.products || []), { id: Date.now().toString(), category: newProduct.category || '未分類', name: newProduct.name, rankingItems: [items[0]], goalItems: [], items }] });
           setNewProduct({ category: '', name: '', itemsStr: '' });
         }
       };
@@ -615,9 +867,9 @@
           const items = editingProduct.itemsStr.split(',').map(s => s.trim()).filter(s => s);
           const updated = (settings.products || []).map(p => {
             if (p.id === editingProduct.id) {
-               const gItems = Array.isArray(p.goalItems) ? p.goalItems.filter(i => items.includes(i)) : (p.goalItem && items.includes(p.goalItem) ? [p.goalItem] : []);
                const rItems = Array.isArray(p.rankingItems) ? p.rankingItems.filter(i => items.includes(i)) : (p.rankingItem && items.includes(p.rankingItem) ? [p.rankingItem] : []);
-               return { ...p, category: editingProduct.category || '未分類', name: editingProduct.name, items, rankingItems: rItems, rankingItem: null, goalItems: gItems, goalItem: null };
+               const gItems = Array.isArray(p.goalItems) ? p.goalItems.filter(i => items.includes(i)) : (p.goalItem && items.includes(p.goalItem) ? [p.goalItem] : []);
+               return { ...p, category: editingProduct.category || '未分類', name: editingProduct.name, items, rankingItems: rItems.length > 0 ? rItems : [items[0]], rankingItem: null, goalItems: gItems, goalItem: null };
             }
             return p;
           });
@@ -627,7 +879,7 @@
       const addOtherStat = () => {
         if (newOtherStat.mainCategory && newOtherStat.subCategory && newOtherStat.itemsStr) {
           const items = newOtherStat.itemsStr.split(',').map(s => s.trim()).filter(s => s);
-          saveSettings({ ...settings, otherStats: [...(settings.otherStats||[]), { id: Date.now().toString(), mainCategory: newOtherStat.mainCategory, subCategory: newOtherStat.subCategory, rankingItems: items.length > 0 ? [items[0]] : [], goalItems: [], items }] });
+          saveSettings({ ...settings, otherStats: [...(settings.otherStats||[]), { id: Date.now().toString(), mainCategory: newOtherStat.mainCategory, subCategory: newOtherStat.subCategory, rankingItems: [items[0]], goalItems: [], items }] });
           setNewOtherStat({ mainCategory: '', subCategory: '', itemsStr: '' });
         }
       };
@@ -636,9 +888,9 @@
           const items = editingOtherStat.itemsStr.split(',').map(s => s.trim()).filter(s => s);
           const updated = (settings.otherStats||[]).map(os => {
             if (os.id === editingOtherStat.id) {
-               const gItems = Array.isArray(os.goalItems) ? os.goalItems.filter(i => items.includes(i)) : (os.goalItem && items.includes(os.goalItem) ? [os.goalItem] : []);
                const rItems = Array.isArray(os.rankingItems) ? os.rankingItems.filter(i => items.includes(i)) : (os.rankingItem && items.includes(os.rankingItem) ? [os.rankingItem] : []);
-               return { ...os, mainCategory: editingOtherStat.mainCategory, subCategory: editingOtherStat.subCategory, items, rankingItems: rItems, rankingItem: null, goalItems: gItems, goalItem: null };
+               const gItems = Array.isArray(os.goalItems) ? os.goalItems.filter(i => items.includes(i)) : (os.goalItem && items.includes(os.goalItem) ? [os.goalItem] : []);
+               return { ...os, mainCategory: editingOtherStat.mainCategory, subCategory: editingOtherStat.subCategory, items, rankingItems: rItems.length > 0 ? rItems : [items[0]], rankingItem: null, goalItems: gItems, goalItem: null };
             }
             return os;
           });
@@ -671,7 +923,7 @@
         });
         saveSettings({ ...settings, otherStats: updated });
       };
-
+      
       const toggleGoalItem = (productId, item) => {
         const updated = (settings.products || []).map(p => {
           if (p.id === productId) {
@@ -811,6 +1063,7 @@
                       </div>
                     </div>
 
+                    {/* --- 商材登録 --- */}
                     {settings.products && settings.products.length > 0 && (
                       <div className="mt-8">
                         <div className="flex items-center justify-between mb-3 mx-1">
@@ -850,6 +1103,7 @@
                       </div>
                     )}
 
+                    {/* --- その他実績登録 --- */}
                     {settings.otherStats && settings.otherStats.length > 0 && (
                       <div className="mt-8 pt-6 border-t border-gray-200/50">
                         <div className="flex items-center justify-between mb-3 mx-1">
@@ -895,6 +1149,7 @@
                       </div>
                     )}
 
+                    {/* --- ランキング --- */}
                     {rankings.length > 0 && (
                       <div className="mt-10 space-y-4">
                         <h3 className="font-bold text-xl text-gray-900 mb-4 ml-1">今週のランキング <span className="text-xs text-gray-400 font-medium ml-1">Top 3</span></h3>
@@ -992,15 +1247,16 @@
                           <div className="space-y-4">
                             {Object.entries(share.goals || {}).map(([staffId, goalVals]) => {
                               const staffName = (settings.staffs || []).find(s => s.id === staffId)?.name || '不明';
-                              const monthRecords = records.filter(r => r.date.startsWith(share.targetMonth) && r.staffId === staffId);
+                              const monthRecords = records.filter(r => r.date.startsWith(share.targetMonth) && String(r.staffId) === String(staffId));
                               
-                              const targetProducts = (settings.products || []).filter(p => {
-                                const g = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
-                                return g.length > 0 && goalVals['p_' + p.id];
+                              const targetProducts = (settings.products || []).flatMap(p => {
+                                const gItems = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
+                                return gItems.map(gItem => ({ ...p, gItem, targetVal: goalVals[`p_${p.id}_${gItem}`] })).filter(x => x.targetVal);
                               });
-                              const targetOtherStats = (settings.otherStats || []).filter(os => {
-                                const g = Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : []);
-                                return g.length > 0 && goalVals['o_' + os.id];
+                              
+                              const targetOtherStats = (settings.otherStats || []).flatMap(os => {
+                                const gItems = Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : []);
+                                return gItems.map(gItem => ({ ...os, gItem, targetVal: goalVals[`o_${os.id}_${gItem}`] })).filter(x => x.targetVal);
                               });
 
                               if (targetProducts.length === 0 && targetOtherStats.length === 0) return null;
@@ -1017,23 +1273,21 @@
                                     </button>
                                   </div>
                                   <div className="space-y-3">
-                                    {targetProducts.map(p => {
-                                      const target = goalVals['p_' + p.id];
-                                      const gItems = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
-                                      
+                                    {targetProducts.map(pObj => {
+                                      const target = pObj.targetVal;
                                       let current = 0;
-                                      monthRecords.filter(r => String(r.productId) === String(p.id)).forEach(r => {
-                                        if (r.itemIds) { r.itemIds.forEach(id => { if (gItems.includes(id)) current++; }); } 
-                                        else if (gItems.includes(r.itemId)) current++;
+                                      monthRecords.filter(r => String(r.productId) === String(pObj.id)).forEach(r => {
+                                        if (r.itemIds && r.itemIds.includes(pObj.gItem)) current++;
+                                        else if (r.itemId === pObj.gItem) current++;
                                       });
 
                                       const percent = Math.min(100, target > 0 ? Math.round((current / target) * 100) : 0);
                                       const isCompleted = current >= target;
                                       
                                       return (
-                                        <div key={p.id}>
+                                        <div key={`${pObj.id}_${pObj.gItem}`}>
                                           <div className="flex justify-between text-xs text-gray-600 mb-1 font-medium">
-                                            <span className="truncate pr-2">{p.name} <span className="text-amber-500 font-bold ml-0.5">({gItems.join(', ')})</span></span>
+                                            <span className="truncate pr-2">{pObj.name} <span className="text-amber-500 font-bold ml-0.5">({pObj.gItem})</span></span>
                                             <span className="whitespace-nowrap"><span className="text-gray-900 font-bold text-sm">{current}</span> / {target} 件</span>
                                           </div>
                                           <div className="h-2 bg-[#f2f2f7] rounded-full overflow-hidden border border-gray-200/50">
@@ -1042,22 +1296,20 @@
                                         </div>
                                       );
                                     })}
-                                    {targetOtherStats.map(os => {
-                                      const target = goalVals['o_' + os.id];
-                                      const gItems = Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : []);
-                                      
+                                    {targetOtherStats.map(osObj => {
+                                      const target = osObj.targetVal;
                                       let current = 0;
-                                      monthRecords.filter(r => String(r.otherStatId) === String(os.id)).forEach(r => {
-                                        if (r.counts) { gItems.forEach(gItem => { if (r.counts[gItem]) current += r.counts[gItem]; }); }
+                                      monthRecords.filter(r => String(r.otherStatId) === String(osObj.id)).forEach(r => {
+                                        if (r.counts && r.counts[osObj.gItem]) current += r.counts[osObj.gItem];
                                       });
 
                                       const percent = Math.min(100, target > 0 ? Math.round((current / target) * 100) : 0);
                                       const isCompleted = current >= target;
                                       
                                       return (
-                                        <div key={os.id}>
+                                        <div key={`${osObj.id}_${osObj.gItem}`}>
                                           <div className="flex justify-between text-xs text-gray-600 mb-1 font-medium">
-                                            <span className="truncate pr-2">{os.subCategory} <span className="text-amber-500 font-bold ml-0.5">({gItems.join(', ')})</span></span>
+                                            <span className="truncate pr-2">{osObj.subCategory} <span className="text-amber-500 font-bold ml-0.5">({osObj.gItem})</span></span>
                                             <span className="whitespace-nowrap"><span className="text-gray-900 font-bold text-sm">{current}</span> / {target} 件</span>
                                           </div>
                                           <div className="h-2 bg-[#f2f2f7] rounded-full overflow-hidden border border-gray-200/50">
@@ -1230,7 +1482,7 @@
                                           <div key={idx} className="flex justify-between items-center text-gray-600">
                                             <div className="flex flex-col">
                                               <span className="font-semibold text-gray-700">{detail.name}</span>
-                                              <span className="text-[10px] text-amber-500 font-bold max-w-[120px] truncate">{detail.itemName}</span>
+                                              <span className="text-[10px] text-amber-500 font-bold">{detail.itemName}</span>
                                             </div>
                                             <span className="font-bold text-gray-800">{detail.count}件</span>
                                           </div>
@@ -1286,7 +1538,12 @@
                 <div className="flex justify-between items-end mb-2 ml-1">
                   <h2 className="font-bold text-2xl text-gray-900 tracking-tight">共有ボード</h2>
                   <button onClick={() => {
-                    if (!isCreatingShare) { resetShareForm(); setIsCreatingShare(true); } else { resetShareForm(); }
+                    if (!isCreatingShare) {
+                      resetShareForm();
+                      setIsCreatingShare(true);
+                    } else {
+                      resetShareForm();
+                    }
                   }} className="bg-gray-900 text-white p-2.5 rounded-full active:scale-95 transition-transform shadow-sm">
                     {isCreatingShare ? <X size={20}/> : <Plus size={20}/>}
                   </button>
@@ -1342,7 +1599,15 @@
                         <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto hide-scroll">
                           {(settings.staffs || []).filter(s => shareForm.targetShopId === 'all' || s.shopId === shareForm.targetShopId).map(s => (
                             <label key={s.id} className="flex items-center space-x-2 text-sm bg-white p-2 rounded-xl">
-                              <input type="checkbox" checked={shareForm.targetStaffIds.includes(s.id)} onChange={(e) => { const newIds = e.target.checked ? [...shareForm.targetStaffIds, s.id] : shareForm.targetStaffIds.filter(id=>id!==s.id); setShareForm({...shareForm, targetStaffIds: newIds}); }} className="rounded text-gray-900 focus:ring-gray-900 border-gray-300" />
+                              <input 
+                                type="checkbox" 
+                                checked={shareForm.targetStaffIds.includes(s.id)} 
+                                onChange={(e) => {
+                                  const newIds = e.target.checked ? [...shareForm.targetStaffIds, s.id] : shareForm.targetStaffIds.filter(id=>id!==s.id);
+                                  setShareForm({...shareForm, targetStaffIds: newIds});
+                                }}
+                                className="rounded text-gray-900 focus:ring-gray-900 border-gray-300"
+                              />
                               <span className="text-gray-700 font-medium truncate">{s.name}</span>
                             </label>
                           ))}
@@ -1355,7 +1620,12 @@
                         <p className="text-xs font-bold text-gray-500 mb-3">個人目標の提出枠を作成</p>
                         <div className="mb-3">
                           <label className="block text-xs font-semibold text-gray-500 mb-1.5 ml-1">目標の対象月</label>
-                          <input type="month" value={shareForm.targetMonth} onChange={e=>setShareForm({...shareForm, targetMonth: e.target.value})} className={`${inputClass} px-3 py-2 text-sm`} />
+                          <input 
+                            type="month" 
+                            value={shareForm.targetMonth} 
+                            onChange={e=>setShareForm({...shareForm, targetMonth: e.target.value})} 
+                            className={`${inputClass} px-3 py-2 text-sm`} 
+                          />
                         </div>
                         <div className="text-[10px] text-gray-500 bg-white p-2 rounded-lg shadow-sm border border-gray-100 leading-relaxed">
                           ※設定タブの「個人目標集計」で対象項目が指定されているすべての商材が、スタッフの入力対象になります。
@@ -1364,8 +1634,14 @@
                     )}
 
                     <div className="flex gap-3 mt-4">
-                      {editingShareId && ( <button onClick={resetShareForm} className="w-1/3 bg-gray-200 text-gray-700 font-bold p-3.5 rounded-2xl active:bg-gray-300 transition-transform">キャンセル</button> )}
-                      <button onClick={submitShare} className={`${editingShareId ? 'w-2/3' : 'w-full'} ${btnClass} py-3.5`}>{editingShareId ? '更新する' : '投稿する'}</button>
+                      {editingShareId && (
+                        <button onClick={resetShareForm} className="w-1/3 bg-gray-200 text-gray-700 font-bold p-3.5 rounded-2xl active:bg-gray-300 transition-transform">
+                          キャンセル
+                        </button>
+                      )}
+                      <button onClick={submitShare} className={`${editingShareId ? 'w-2/3' : 'w-full'} ${btnClass} py-3.5`}>
+                        {editingShareId ? '更新する' : '投稿する'}
+                      </button>
                     </div>
                   </div>
                 )}
@@ -1374,8 +1650,11 @@
                   {shares.sort((a,b)=>b.timestamp-a.timestamp).map(share => {
                     const creator = (settings.staffs || []).find(s => s.id === share.creatorStaffId)?.name || '不明';
                     const targetShop = share.targetShopId === 'all' ? '全店舗' : ((settings.shops || []).find(s => s.id === share.targetShopId)?.name || '不明');
-                    const isTask = share.type === 'task'; const isShift = share.type === 'shift'; const isGoal = share.type === 'goal';
+                    const isTask = share.type === 'task';
+                    const isShift = share.type === 'shift';
+                    const isGoal = share.type === 'goal';
                     const isExpired = share.deadline && share.deadline < getLocalDateString();
+
                     const typeColors = { task: 'bg-blue-50 text-blue-600', shift: 'bg-emerald-50 text-emerald-600', goal: 'bg-orange-50 text-orange-600' };
                     const typeLabels = { task: 'タスク', shift: '希望休', goal: '個人目標' };
 
@@ -1383,7 +1662,9 @@
                       <div key={share.id} className={`bg-white p-5 rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border ${isExpired ? 'border-red-100' : 'border-gray-100/50'} relative`}>
                         <div className="flex justify-between items-start mb-3">
                           <div className="flex items-center gap-2">
-                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-md ${typeColors[share.type] || 'bg-gray-50 text-gray-600'}`}>{typeLabels[share.type] || '共有'}</span>
+                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-md ${typeColors[share.type] || 'bg-gray-50 text-gray-600'}`}>
+                              {typeLabels[share.type] || '共有'}
+                            </span>
                             <span className="text-[10px] font-bold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-md">{targetShop}</span>
                           </div>
                           <div className="flex items-center gap-3">
@@ -1409,7 +1690,11 @@
                                 const staffName = (settings.staffs || []).find(s => s.id === staffId)?.name || '不明';
                                 const isCompleted = share.completedStaffIds?.includes(staffId);
                                 return (
-                                  <button key={staffId} onClick={() => toggleTaskCompletion(share, staffId)} className={`flex items-center px-3 py-1.5 rounded-xl text-sm font-semibold transition-all active:scale-95 ${isCompleted ? 'bg-gray-900 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200'}`}>
+                                  <button 
+                                    key={staffId} 
+                                    onClick={() => toggleTaskCompletion(share, staffId)}
+                                    className={`flex items-center px-3 py-1.5 rounded-xl text-sm font-semibold transition-all active:scale-95 ${isCompleted ? 'bg-gray-900 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200'}`}
+                                  >
                                     {isCompleted ? <CheckSquare size={14} className="mr-1.5 opacity-80" /> : <Square size={14} className="mr-1.5 opacity-50" />}
                                     {staffName}
                                   </button>
@@ -1423,11 +1708,20 @@
                           <div className="bg-[#f2f2f7] p-4 rounded-2xl mt-4">
                             <p className="text-xs font-bold text-gray-500 mb-3">希望休の提出</p>
                             <div className="flex gap-2 mb-4">
-                              <select value={shiftInput.shareId === share.id ? shiftInput.staffId : ''} onChange={e => setShiftInput({ shareId: share.id, staffId: e.target.value, dates: shiftInput.dates })} className={`${inputClass} px-3 py-2 text-xs flex-1`}>
+                              <select 
+                                value={shiftInput.shareId === share.id ? shiftInput.staffId : ''} 
+                                onChange={e => setShiftInput({ shareId: share.id, staffId: e.target.value, dates: shiftInput.dates })}
+                                className={`${inputClass} px-3 py-2 text-xs flex-1`}
+                              >
                                 <option value="">自分の名前...</option>
                                 {(settings.staffs || []).filter(s => share.targetShopId === 'all' || s.shopId === share.targetShopId).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                               </select>
-                              <input placeholder="例: 10日、15日" value={shiftInput.shareId === share.id ? shiftInput.dates : ''} onChange={e => setShiftInput({ shareId: share.id, staffId: shiftInput.staffId, dates: e.target.value })} className={`${inputClass} px-3 py-2 text-xs flex-1`} />
+                              <input 
+                                placeholder="例: 10日、15日" 
+                                value={shiftInput.shareId === share.id ? shiftInput.dates : ''}
+                                onChange={e => setShiftInput({ shareId: share.id, staffId: shiftInput.staffId, dates: e.target.value })}
+                                className={`${inputClass} px-3 py-2 text-xs flex-1`}
+                              />
                               <button onClick={() => submitShift(share.id)} className="bg-gray-900 text-white px-3 rounded-xl text-xs font-bold active:scale-95 transition-transform">提出</button>
                             </div>
                             
@@ -1467,11 +1761,13 @@
                                 {(settings.products || []).flatMap(p => {
                                   const gItems = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
                                   return gItems.map(gItem => (
-                                    <div key={`p_${p.id}_${gItem}`} className="flex flex-col bg-[#f2f2f7] p-2 rounded-lg">
+                                    <div key={`${p.id}_${gItem}`} className="flex flex-col bg-[#f2f2f7] p-2 rounded-lg">
                                       <span className="text-[10px] font-bold text-gray-700 truncate">{p.name} <span className="text-amber-500">({gItem})</span></span>
                                       <div className="flex items-center mt-1">
                                         <input 
-                                          type="number" min="0" placeholder="件数"
+                                          type="number" 
+                                          min="0"
+                                          placeholder="件数"
                                           value={goalForms[share.id]?.values?.[`p_${p.id}_${gItem}`] ?? ''}
                                           onChange={e => updateGoalForm(share.id, `p_${p.id}_${gItem}`, e.target.value === '' ? '' : parseInt(e.target.value, 10))}
                                           className="w-full text-right px-2 py-1.5 text-sm font-bold rounded-md bg-white border border-gray-200 focus:ring-1 focus:ring-amber-500"
@@ -1483,11 +1779,13 @@
                                 {(settings.otherStats || []).flatMap(os => {
                                   const gItems = Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : []);
                                   return gItems.map(gItem => (
-                                    <div key={`o_${os.id}_${gItem}`} className="flex flex-col bg-[#f2f2f7] p-2 rounded-lg">
+                                    <div key={`${os.id}_${gItem}`} className="flex flex-col bg-[#f2f2f7] p-2 rounded-lg">
                                       <span className="text-[10px] font-bold text-gray-700 truncate">{os.subCategory} <span className="text-amber-500">({gItem})</span></span>
                                       <div className="flex items-center mt-1">
                                         <input 
-                                          type="number" min="0" placeholder="件数"
+                                          type="number" 
+                                          min="0"
+                                          placeholder="件数"
                                           value={goalForms[share.id]?.values?.[`o_${os.id}_${gItem}`] ?? ''}
                                           onChange={e => updateGoalForm(share.id, `o_${os.id}_${gItem}`, e.target.value === '' ? '' : parseInt(e.target.value, 10))}
                                           className="w-full text-right px-2 py-1.5 text-sm font-bold rounded-md bg-white border border-gray-200 focus:ring-1 focus:ring-amber-500"
@@ -1496,8 +1794,8 @@
                                     </div>
                                   ));
                                 })}
-                                {(settings.products || []).filter(p => (Array.isArray(p.goalItems) ? p.goalItems : []).length > 0).length === 0 && 
-                                 (settings.otherStats || []).filter(os => (Array.isArray(os.goalItems) ? os.goalItems : []).length > 0).length === 0 && (
+                                {(settings.products || []).filter(p => (Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : [])).length > 0).length === 0 && 
+                                 (settings.otherStats || []).filter(os => (Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : [])).length > 0).length === 0 && (
                                    <div className="col-span-2 text-xs text-gray-400 py-2 text-center">設定タブで目標対象の項目を指定してください</div>
                                 )}
                               </div>
@@ -1527,7 +1825,7 @@
                                         {(settings.products || []).flatMap(p => {
                                           const gItems = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
                                           return gItems.filter(gItem => goalVals[`p_${p.id}_${gItem}`]).map(gItem => (
-                                            <span key={`p_${p.id}_${gItem}`} className="text-[10px] bg-gray-50 border border-gray-200 text-gray-600 px-2 py-1 rounded-md">
+                                            <span key={`${p.id}_${gItem}`} className="text-[10px] bg-gray-50 border border-gray-200 text-gray-600 px-2 py-1 rounded-md">
                                               {p.name}({gItem}): <strong className="text-gray-900">{goalVals[`p_${p.id}_${gItem}`]}件</strong>
                                             </span>
                                           ));
@@ -1535,7 +1833,7 @@
                                         {(settings.otherStats || []).flatMap(os => {
                                           const gItems = Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : []);
                                           return gItems.filter(gItem => goalVals[`o_${os.id}_${gItem}`]).map(gItem => (
-                                            <span key={`o_${os.id}_${gItem}`} className="text-[10px] bg-gray-50 border border-gray-200 text-gray-600 px-2 py-1 rounded-md">
+                                            <span key={`${os.id}_${gItem}`} className="text-[10px] bg-gray-50 border border-gray-200 text-gray-600 px-2 py-1 rounded-md">
                                               {os.subCategory}({gItem}): <strong className="text-gray-900">{goalVals[`o_${os.id}_${gItem}`]}件</strong>
                                             </span>
                                           ));
@@ -1599,7 +1897,7 @@
                     </div>
 
                     <div className="space-y-3">
-                      {[...(tasks || [])].sort((a, b) => {
+                      {[...(tasks || [])].filter(t => !t.isCompleted).sort((a, b) => {
                         if (a.targetShopId === 'all' && b.targetShopId !== 'all') return -1;
                         if (a.targetShopId !== 'all' && b.targetShopId === 'all') return 1;
                         if (a.targetShopId !== b.targetShopId) {
@@ -1628,7 +1926,7 @@
                           </div>
                         );
                       })}
-                      {(!tasks || tasks.length === 0) && (
+                      {(!tasks || tasks.filter(t => !t.isCompleted).length === 0) && (
                         <div className="text-center py-12">
                           <CheckCircle size={40} className="mx-auto text-gray-200 mb-3" />
                           <p className="text-gray-400 text-sm font-bold">残っている作業はありません！</p>
@@ -1761,8 +2059,23 @@
                     </div>
                     <h2 className="font-bold text-xl text-gray-900 mb-2">設定のロック解除</h2>
                     <p className="text-xs text-gray-500 mb-8 text-center font-medium">変更するにはパスワードを入力してください。<br/>(初期: 0000)</p>
-                    <input type="password" value={inputPassword} onChange={e => setInputPassword(e.target.value)} className={`${inputClass} mb-4 text-center text-2xl tracking-[0.5em] font-bold py-4`} placeholder="••••" />
-                    <button onClick={() => { const correctPass = settings.adminPassword || '0000'; if (inputPassword === correctPass) { setIsAuthenticatedSettings(true); setInputPassword(''); } else { showMsg('パスワードが違います', 'error'); } }} className={`w-full ${btnClass} py-4`}>ロックを解除する</button>
+                    <input 
+                      type="password" 
+                      value={inputPassword} 
+                      onChange={e => setInputPassword(e.target.value)} 
+                      className={`${inputClass} mb-4 text-center text-2xl tracking-[0.5em] font-bold py-4`}
+                      placeholder="••••"
+                    />
+                    <button 
+                      onClick={() => {
+                        const correctPass = settings.adminPassword || '0000';
+                        if (inputPassword === correctPass) { setIsAuthenticatedSettings(true); setInputPassword(''); } 
+                        else { showMsg('パスワードが違います', 'error'); }
+                      }} 
+                      className={`w-full ${btnClass} py-4`}
+                    >
+                      ロックを解除する
+                    </button>
                   </div>
                 ) : (
                   <>
@@ -1838,7 +2151,11 @@
                     <section className="bg-white p-5 rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border border-gray-100/50">
                       <h3 className="font-semibold text-gray-900 mb-4 flex items-center"><div className="w-1 h-4 bg-gray-900 rounded-full mr-2"></div>商材・項目管理</h3>
                       <div className="space-y-3 mb-4 bg-[#f2f2f7] p-4 rounded-2xl border border-gray-100">
-                        <input list="category-list" placeholder="カテゴリー (例: 金融)" value={newProduct.category} onChange={e=>setNewProduct({...newProduct, category: e.target.value})} className={`${inputClass} py-2.5 text-sm bg-white`} />
+                        <input 
+                          list="category-list" placeholder="カテゴリー (例: 金融)" 
+                          value={newProduct.category} onChange={e=>setNewProduct({...newProduct, category: e.target.value})} 
+                          className={`${inputClass} py-2.5 text-sm bg-white`}
+                        />
                         <datalist id="category-list">{existingCategories.map(c => <option key={c} value={c} />)}</datalist>
                         <input placeholder="商材名 (例: クレジットカード)" value={newProduct.name} onChange={e=>setNewProduct({...newProduct, name: e.target.value})} className={`${inputClass} py-2.5 text-sm bg-white`}/>
                         <div className="flex gap-2">
@@ -1879,8 +2196,13 @@
                                     const currentItems = Array.isArray(p.rankingItems) ? p.rankingItems : (p.rankingItem ? [p.rankingItem] : []);
                                     const isSelected = currentItems.includes(i);
                                     return (
-                                      <label key={`rank_${i}`} className="flex items-center space-x-1.5 bg-gray-50 px-2 py-1 rounded border border-gray-200 cursor-pointer active:scale-95 transition-transform">
-                                        <input type="checkbox" checked={isSelected} onChange={() => toggleRankingItem(p.id, i)} className="rounded text-gray-900 focus:ring-gray-900 border-gray-300" />
+                                      <label key={i} className="flex items-center space-x-1.5 bg-gray-50 px-2 py-1 rounded border border-gray-200 cursor-pointer active:scale-95 transition-transform">
+                                        <input 
+                                          type="checkbox" 
+                                          checked={isSelected} 
+                                          onChange={() => toggleRankingItem(p.id, i)} 
+                                          className="rounded text-amber-500 focus:ring-amber-500 border-gray-300"
+                                        />
                                         <span className={`font-medium ${isSelected ? 'text-gray-900' : 'text-gray-500'}`}>{i}</span>
                                       </label>
                                     );
@@ -1894,8 +2216,13 @@
                                     const currentItems = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
                                     const isSelected = currentItems.includes(i);
                                     return (
-                                      <label key={`goal_${i}`} className="flex items-center space-x-1.5 bg-gray-50 px-2 py-1 rounded border border-gray-200 cursor-pointer active:scale-95 transition-transform">
-                                        <input type="checkbox" checked={isSelected} onChange={() => toggleGoalItem(p.id, i)} className="rounded text-amber-500 focus:ring-amber-500 border-gray-300" />
+                                      <label key={i} className="flex items-center space-x-1.5 bg-gray-50 px-2 py-1 rounded border border-gray-200 cursor-pointer active:scale-95 transition-transform">
+                                        <input 
+                                          type="checkbox" 
+                                          checked={isSelected} 
+                                          onChange={() => toggleGoalItem(p.id, i)} 
+                                          className="rounded text-amber-500 focus:ring-amber-500 border-gray-300"
+                                        />
                                         <span className={`font-medium ${isSelected ? 'text-gray-900' : 'text-gray-500'}`}>{i}</span>
                                       </label>
                                     );
@@ -1922,7 +2249,11 @@
                         <span className="ml-2 text-[10px] bg-amber-50 text-amber-600 border border-amber-100 px-2 py-0.5 rounded-full font-bold">件数入力用</span>
                       </h3>
                       <div className="space-y-3 mb-4 bg-[#f2f2f7] p-4 rounded-2xl border border-gray-100">
-                        <input list="other-category-list" placeholder="大分類 (例: 来店、物販など)" value={newOtherStat.mainCategory} onChange={e=>setNewOtherStat({...newOtherStat, mainCategory: e.target.value})} className={`${inputClass} py-2.5 text-sm bg-white`} />
+                        <input 
+                          list="other-category-list" placeholder="大分類 (例: 来店、物販など)" 
+                          value={newOtherStat.mainCategory} onChange={e=>setNewOtherStat({...newOtherStat, mainCategory: e.target.value})} 
+                          className={`${inputClass} py-2.5 text-sm bg-white`}
+                        />
                         <datalist id="other-category-list">{existingOtherMainCategories.map(c => <option key={c} value={c} />)}</datalist>
                         <input placeholder="中分類 (例: 目的別)" value={newOtherStat.subCategory} onChange={e=>setNewOtherStat({...newOtherStat, subCategory: e.target.value})} className={`${inputClass} py-2.5 text-sm bg-white`}/>
                         <div className="flex gap-2">
@@ -1963,8 +2294,13 @@
                                     const currentItems = Array.isArray(os.rankingItems) ? os.rankingItems : (os.rankingItem ? [os.rankingItem] : []);
                                     const isSelected = currentItems.includes(i);
                                     return (
-                                      <label key={`os_rank_${i}`} className="flex items-center space-x-1.5 bg-gray-50 px-2 py-1 rounded border border-gray-200 cursor-pointer active:scale-95 transition-transform">
-                                        <input type="checkbox" checked={isSelected} onChange={() => toggleOtherStatRankingItem(os.id, i)} className="rounded text-gray-900 focus:ring-gray-900 border-gray-300" />
+                                      <label key={i} className="flex items-center space-x-1.5 bg-gray-50 px-2 py-1 rounded border border-gray-200 cursor-pointer active:scale-95 transition-transform">
+                                        <input 
+                                          type="checkbox" 
+                                          checked={isSelected} 
+                                          onChange={() => toggleOtherStatRankingItem(os.id, i)} 
+                                          className="rounded text-amber-500 focus:ring-amber-500 border-gray-300"
+                                        />
                                         <span className={`font-medium ${isSelected ? 'text-gray-900' : 'text-gray-500'}`}>{i}</span>
                                       </label>
                                     );
@@ -1979,7 +2315,12 @@
                                     const isSelected = currentItems.includes(i);
                                     return (
                                       <label key={i} className="flex items-center space-x-1.5 bg-gray-50 px-2 py-1 rounded border border-gray-200 cursor-pointer active:scale-95 transition-transform">
-                                        <input type="checkbox" checked={isSelected} onChange={() => toggleOtherStatGoalItem(os.id, i)} className="rounded text-amber-500 focus:ring-amber-500 border-gray-300" />
+                                        <input 
+                                          type="checkbox" 
+                                          checked={isSelected} 
+                                          onChange={() => toggleOtherStatGoalItem(os.id, i)} 
+                                          className="rounded text-amber-500 focus:ring-amber-500 border-gray-300"
+                                        />
                                         <span className={`font-medium ${isSelected ? 'text-gray-900' : 'text-gray-500'}`}>{i}</span>
                                       </label>
                                     );
@@ -2007,7 +2348,7 @@
             <div className="max-w-md mx-auto flex justify-between px-2 pb-1">
               {[
                 { id: 'record', icon: Edit, label: '登録' },
-                { id: 'task', icon: ListTodo, label: '作業', badge: tasks.length > 0 },
+                { id: 'task', icon: ListTodo, label: '作業', badge: (tasks || []).filter(t => !t.isCompleted).length > 0 },
                 { id: 'analytics', icon: PieChart, label: 'データ' },
                 { id: 'share', icon: MessageSquare, label: '共有', badge: urgentShares.length > 0 },
                 { id: 'settings', icon: SettingsIcon, label: '設定' }
