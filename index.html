@@ -266,50 +266,62 @@
       };
 
       const currentWeekRecords = useMemo(() => {
-        const d = new Date(); const day = d.getDay();
+        const d = new Date();
+        const day = d.getDay();
         const start = new Date(d); start.setDate(d.getDate() - day + (day === 0 ? -6 : 1));
         const end = new Date(start); end.setDate(start.getDate() + 6);
-        const startStr = getLocalDateString(start); const endStr = getLocalDateString(end);
+        
+        const startStr = getLocalDateString(start);
+        const endStr = getLocalDateString(end);
+        
         return records.filter(r => r.date >= startStr && r.date <= endStr);
       }, [records]);
 
-      // ★複数選択のランキング計算
+      // ★複数選択のランキング計算（項目ごとに別々のランキングとして分割）
       const rankings = useMemo(() => {
-        const prodRankings = (settings.products || []).map(product => {
+        const prodRankings = (settings.products || []).flatMap(product => {
           const rItems = Array.isArray(product.rankingItems) ? product.rankingItems : (product.rankingItem ? [product.rankingItem] : []);
-          if (rItems.length === 0) return null;
-          const productRecords = currentWeekRecords.filter(r => String(r.productId) === String(product.id));
-          const staffCounts = {};
-          (settings.staffs || []).forEach(s => staffCounts[s.id] = 0);
-          productRecords.forEach(r => {
-            if (r.itemIds) {
-              r.itemIds.forEach(id => { if (rItems.includes(id)) { if (staffCounts[r.staffId] !== undefined) staffCounts[r.staffId]++; } });
-            } else if (rItems.includes(r.itemId)) {
-              if (staffCounts[r.staffId] !== undefined) staffCounts[r.staffId]++;
-            }
-          });
-          const ranking = (settings.staffs || []).map(s => ({ staffName: s.name, count: staffCounts[s.id] || 0 })).filter(s => s.count > 0).sort((a, b) => b.count - a.count).slice(0, 3);
-          return { id: 'p_' + product.id, category: product.category, name: product.name, rankingItems: rItems, ranking };
-        }).filter(Boolean);
-
-        const otherRankings = (settings.otherStats || []).map(os => {
-          const rItems = Array.isArray(os.rankingItems) ? os.rankingItems : (os.rankingItem ? [os.rankingItem] : []);
-          if (rItems.length === 0) return null;
-          const osRecords = currentWeekRecords.filter(r => String(r.otherStatId) === String(os.id));
-          const staffCounts = {};
-          (settings.staffs || []).forEach(s => staffCounts[s.id] = 0);
-          osRecords.forEach(r => {
-            if (r.counts) {
-              rItems.forEach(rItem => {
-                if (r.counts[rItem]) {
-                  if (staffCounts[r.staffId] !== undefined) staffCounts[r.staffId] += r.counts[rItem];
+          if (rItems.length === 0) return [];
+          
+          return rItems.map(rItem => {
+            const productRecords = currentWeekRecords.filter(r => String(r.productId) === String(product.id));
+            const staffCounts = {};
+            (settings.staffs || []).forEach(s => staffCounts[s.id] = 0);
+            
+            productRecords.forEach(r => {
+              if (r.itemIds) {
+                if (r.itemIds.includes(rItem)) {
+                  if (staffCounts[r.staffId] !== undefined) staffCounts[r.staffId]++;
                 }
-              });
-            }
+              } else if (r.itemId === rItem) {
+                if (staffCounts[r.staffId] !== undefined) staffCounts[r.staffId]++;
+              }
+            });
+            
+            const ranking = (settings.staffs || []).map(s => ({ staffName: s.name, count: staffCounts[s.id] || 0 })).filter(s => s.count > 0).sort((a, b) => b.count - a.count).slice(0, 3);
+            return { id: `p_${product.id}_${rItem}`, category: product.category, name: product.name, rankingItem: rItem, ranking };
           });
-          const ranking = (settings.staffs || []).map(s => ({ staffName: s.name, count: staffCounts[s.id] || 0 })).filter(s => s.count > 0).sort((a, b) => b.count - a.count).slice(0, 3);
-          return { id: 'o_' + os.id, category: os.mainCategory, name: os.subCategory, rankingItems: rItems, ranking };
-        }).filter(Boolean);
+        });
+
+        const otherRankings = (settings.otherStats || []).flatMap(os => {
+          const rItems = Array.isArray(os.rankingItems) ? os.rankingItems : (os.rankingItem ? [os.rankingItem] : []);
+          if (rItems.length === 0) return [];
+          
+          return rItems.map(rItem => {
+            const osRecords = currentWeekRecords.filter(r => String(r.otherStatId) === String(os.id));
+            const staffCounts = {};
+            (settings.staffs || []).forEach(s => staffCounts[s.id] = 0);
+            
+            osRecords.forEach(r => {
+              if (r.counts && r.counts[rItem]) {
+                if (staffCounts[r.staffId] !== undefined) staffCounts[r.staffId] += r.counts[rItem];
+              }
+            });
+            
+            const ranking = (settings.staffs || []).map(s => ({ staffName: s.name, count: staffCounts[s.id] || 0 })).filter(s => s.count > 0).sort((a, b) => b.count - a.count).slice(0, 3);
+            return { id: `o_${os.id}_${rItem}`, category: os.mainCategory, name: os.subCategory, rankingItem: rItem, ranking };
+          });
+        });
 
         return [...prodRankings, ...otherRankings];
       }, [settings.products, settings.otherStats, settings.staffs, currentWeekRecords]);
@@ -898,7 +910,7 @@
                                   <h4 className="font-bold text-gray-900 text-base">{product.name}</h4>
                                 </div>
                                 <span className="text-[10px] text-gray-500 font-bold bg-gray-100 px-2.5 py-1.5 rounded-lg truncate max-w-[120px] shrink-0">
-                                  集計: {product.rankingItems.join(', ')}
+                                  集計: {product.rankingItem}
                                 </span>
                               </div>
                               
