@@ -42,10 +42,8 @@
     import { getFirestore, doc, setDoc, collection, addDoc, updateDoc, onSnapshot, deleteDoc, query, where } from "firebase/firestore";
     import { getAnalytics, isSupported } from "firebase/analytics";
 
-    // 連携用GASの新しいURL
     const GAS_URL = 'https://script.google.com/macros/s/AKfycbwTvFPfJjL9oTnxR8SCX_L9AZW_iT1va8_G4a4m-OqigO6tPYL8cn5EXAqxRnXduhh58w/exec';
 
-    // 日本時間での日付文字列取得関数
     const getLocalDateString = (d = new Date()) => {
       const year = d.getFullYear();
       const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -53,7 +51,6 @@
       return `${year}-${month}-${day}`;
     };
 
-    // 日本時間での年月文字列取得関数
     const getLocalMonthString = (d = new Date()) => {
       const year = d.getFullYear();
       const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -68,7 +65,7 @@
       const [tab, setTab] = useState('record'); 
       const [msg, setMsg] = useState({ text: '', type: '' });
 
-      const [settings, setSettings] = useState({ shops: [], staffs: [], products: [], otherStats: [] });
+      const [settings, setSettings] = useState({ shops: [], staffs: [], products: [], otherStats: [], taskTemplates: [] });
       const [records, setRecords] = useState([]);
       const [shares, setShares] = useState([]);
       const [tasks, setTasks] = useState([]);
@@ -76,9 +73,8 @@
       const [period, setPeriod] = useState('day');
       const [baseDate, setBaseDate] = useState(getLocalDateString());
       
-      const [dataType, setDataType] = useState('product'); // 'product', 'other', 'goal'
+      const [dataType, setDataType] = useState('product');
 
-      // データタブは「当月の1日以降」、それ以外は「直近14日」に修正
       const dataSince = useMemo(() => {
         if (tab === 'analytics') {
           const d = new Date();
@@ -87,7 +83,7 @@
           return d.getTime();
         }
         const d = new Date();
-        d.setDate(d.getDate() - 14); // ランキング用に余裕をもって14日分取得
+        d.setDate(d.getDate() - 14);
         d.setHours(0, 0, 0, 0);
         return d.getTime();
       }, [tab]);
@@ -147,7 +143,6 @@
         return () => unsubscribe();
       }, []);
 
-      // GASからのデータフェッチ
       const fetchRecordsFromGas = async (since) => {
         const url = settings.gasUrl || GAS_URL;
         if (!url) return;
@@ -155,7 +150,6 @@
           const res = await fetch(`${url}?action=getRecords&since=${since}`);
           if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
           const data = await res.json();
-          // 日付のズレを修正して正規化（スプレッドシートからのDate文字列変換対策）
           const normalizedData = data.map(r => {
             let dStr = r.date || '';
             if (dStr.includes('T')) {
@@ -173,9 +167,6 @@
           setRecords(normalizedData);
         } catch (e) {
           console.error("GAS fetch error:", e);
-          if (e.message === 'Failed to fetch') {
-            console.warn("GASのURLにアクセスできません。「アクセスできるユーザー」が「全員」になっているか確認してください。");
-          }
         }
       };
 
@@ -200,6 +191,7 @@
         return () => { unsubSettings(); unsubShares(); unsubTasks(); };
       }, [user, db, appId]);
 
+      // タスク自動生成ロジック
       useEffect(() => {
         if (!db || !settings.taskTemplates || settings.taskTemplates.length === 0) return;
         
@@ -215,21 +207,37 @@
             
             if (template.time && currentTimeStr >= template.time) {
               if (template.scheduleType === 'daily') shouldGenerate = true;
-              else if (template.scheduleType === 'weekly' && template.scheduleValue === currentDayOfWeek) shouldGenerate = true;
-              else if (template.scheduleType === 'monthly' && template.scheduleValue === currentDayOfMonth) shouldGenerate = true;
+              else if (template.scheduleType === 'weekly' && String(template.scheduleValue) === currentDayOfWeek) shouldGenerate = true;
+              else if (template.scheduleType === 'monthly' && String(template.scheduleValue) === currentDayOfMonth) shouldGenerate = true;
             }
 
             if (shouldGenerate) {
-              const taskId = `task_${template.id}_${todayStr}`;
-              
-              if (!tasks.some(t => t.id === taskId)) {
-                 setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId), {
-                   title: template.title,
-                   targetShopId: template.targetShopId,
-                   timestamp: Date.now(),
-                   templateId: template.id
-                 }).catch(e => console.error(e));
+              const isAll = template.isAllTarget !== undefined ? template.isAllTarget : (template.targetShopId === 'all');
+              const shopIds = template.targetShopIds || (template.targetShopId && template.targetShopId !== 'all' ? [template.targetShopId] : []);
+
+              if (isAll) {
+                const taskId = `task_${template.id}_all_${todayStr}`;
+                if (!tasks.some(t => t.id === taskId)) {
+                   setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId), {
+                     title: template.title,
+                     targetShopId: 'all',
+                     timestamp: Date.now(),
+                     templateId: template.id
+                   }).catch(e => console.error(e));
+                }
               }
+
+              shopIds.forEach(shopId => {
+                const taskId = `task_${template.id}_${shopId}_${todayStr}`;
+                if (!tasks.some(t => t.id === taskId)) {
+                   setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId), {
+                     title: template.title,
+                     targetShopId: shopId,
+                     timestamp: Date.now(),
+                     templateId: template.id
+                   }).catch(e => console.error(e));
+                }
+              });
             }
           });
         }, 60000);
@@ -319,7 +327,7 @@
           }
           showMsg('商材実績を登録しました');
           setSelectedItems({}); 
-        } catch (err) { showMsg('登録できませんでした。再度、登録をしてください', 'error'); console.error(err); }
+        } catch (err) { showMsg('登録できませんでした。再度、登録をしてください', 'error'); }
       };
 
       const submitOtherRecords = async () => {
@@ -363,7 +371,7 @@
           }
           showMsg('その他実績を登録しました');
           setOtherCounts({}); 
-        } catch (err) { showMsg('登録できませんでした。再度、登録をしてください', 'error'); console.error(err); }
+        } catch (err) { showMsg('登録できませんでした。再度、登録をしてください', 'error'); }
       };
 
       const currentWeekRecords = useMemo(() => {
@@ -381,7 +389,7 @@
       const rankings = useMemo(() => {
         const prodRankings = (settings.products || []).map(product => {
           if (!product.rankingItem) return null;
-          const productRecords = currentWeekRecords.filter(r => r.productId === product.id);
+          const productRecords = currentWeekRecords.filter(r => String(r.productId) === String(product.id));
           const staffCounts = {};
           (settings.staffs || []).forEach(s => staffCounts[s.id] = 0);
           productRecords.forEach(r => {
@@ -395,7 +403,7 @@
 
         const otherRankings = (settings.otherStats || []).map(os => {
           if (!os.rankingItem) return null;
-          const osRecords = currentWeekRecords.filter(r => r.otherStatId === os.id);
+          const osRecords = currentWeekRecords.filter(r => String(r.otherStatId) === String(os.id));
           const staffCounts = {};
           (settings.staffs || []).forEach(s => staffCounts[s.id] = 0);
           osRecords.forEach(r => {
@@ -471,19 +479,19 @@
         }
         if (targetProducts.length === 0) return null;
         
-        const targetProductIds = targetProducts.map(p => p.id);
-        const targetRecords = filteredRecords.filter(r => targetProductIds.includes(r.productId));
+        const targetProductIds = targetProducts.map(p => String(p.id));
+        const targetRecords = filteredRecords.filter(r => targetProductIds.includes(String(r.productId)));
         const allItemsSet = new Set();
         targetProducts.forEach(p => p.items.forEach(item => allItemsSet.add(item)));
         const columns = Array.from(allItemsSet);
 
         let data = (settings.staffs || []).map(staff => {
-          const staffRecords = targetRecords.filter(r => r.staffId === staff.id);
+          const staffRecords = targetRecords.filter(r => String(r.staffId) === String(staff.id));
           const total = staffRecords.length;
           let rankingCount = 0; let rankingDetails = [];
           targetProducts.forEach(p => {
             if (p.rankingItem) {
-              const count = staffRecords.filter(r => r.productId === p.id && (r.itemIds?.includes(p.rankingItem) || r.itemId === p.rankingItem)).length;
+              const count = staffRecords.filter(r => String(r.productId) === String(p.id) && (r.itemIds?.includes(p.rankingItem) || r.itemId === p.rankingItem)).length;
               rankingCount += count;
               rankingDetails.push({ name: p.name, itemName: p.rankingItem, count });
             }
@@ -506,18 +514,18 @@
         if (analyticsOtherMainCategory !== 'all') targetStats = analyticsOtherSubCategory === 'all' ? targetStats.filter(os => os.mainCategory === analyticsOtherMainCategory) : targetStats.filter(os => os.id === analyticsOtherSubCategory);
         if (targetStats.length === 0) return null;
         
-        const targetStatIds = targetStats.map(os => os.id);
-        const targetRecords = filteredRecords.filter(r => targetStatIds.includes(r.otherStatId));
+        const targetStatIds = targetStats.map(os => String(os.id));
+        const targetRecords = filteredRecords.filter(r => targetStatIds.includes(String(r.otherStatId)));
         const allItemsSet = new Set();
         targetStats.forEach(os => os.items.forEach(item => allItemsSet.add(item)));
         const columns = Array.from(allItemsSet);
 
         let data = (settings.staffs || []).map(staff => {
-          const staffRecords = targetRecords.filter(r => r.staffId === staff.id);
+          const staffRecords = targetRecords.filter(r => String(r.staffId) === String(staff.id));
           let rankingCount = 0; let rankingDetails = [];
           targetStats.forEach(os => {
             if (os.rankingItem) {
-              const osRecords = staffRecords.filter(r => r.otherStatId === os.id);
+              const osRecords = staffRecords.filter(r => String(r.otherStatId) === String(os.id));
               let count = 0; osRecords.forEach(r => { if (r.counts && r.counts[os.rankingItem]) count += r.counts[os.rankingItem]; });
               rankingCount += count;
               rankingDetails.push({ name: os.subCategory, itemName: os.rankingItem, count });
@@ -565,7 +573,7 @@
           }
           showMsg('実績を削除しました'); 
         } 
-        catch (e) { showMsg('削除できませんでした。再度お試しください', 'error'); console.error(e); }
+        catch (e) { showMsg('削除できませんでした。再度お試しください', 'error'); }
       };
 
       const [isCreatingShare, setIsCreatingShare] = useState(false);
@@ -694,7 +702,7 @@
         } catch (err) { showMsg('提出に失敗しました', 'error'); }
       };
 
-      // 完了して7日経過した共有の自動削除
+      // 7日経過した共有の自動削除
       useEffect(() => {
         if (!db || shares.length === 0) return;
         const now = Date.now();
@@ -731,7 +739,7 @@
           }
 
           if (isCompleted && (now - share.timestamp > SEVEN_DAYS)) {
-            deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', share.id)).catch(e => console.log('Auto delete skipped', e));
+            deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', share.id)).catch(e => console.log('Auto delete skipped'));
           }
         });
       }, [shares, settings.staffs, db, appId]);
@@ -742,8 +750,8 @@
       const [newGasUrl, setNewGasUrl] = useState(GAS_URL);
 
       const [taskTab, setTaskTab] = useState('list');
-      const [newTaskForm, setNewTaskForm] = useState({ title: '', targetShopId: 'all' });
-      const [templateForm, setTemplateForm] = useState({ id: '', title: '', targetShopId: 'all', scheduleType: 'daily', scheduleValue: '1', time: '09:00' });
+      const [newTaskForm, setNewTaskForm] = useState({ title: '', isAll: true, shopIds: [] });
+      const [templateForm, setTemplateForm] = useState({ id: '', title: '', isAllTarget: true, targetShopIds: [], scheduleType: 'daily', scheduleValue: '1', time: '09:00' });
 
       const completeTask = async (taskId) => {
         try {
@@ -754,22 +762,45 @@
 
       const addSingleTask = async () => {
         if (!newTaskForm.title) return showMsg('タスク名を入力してください', 'error');
+        if (!newTaskForm.isAll && newTaskForm.shopIds.length === 0) return showMsg('対象を選択してください', 'error');
         try {
-          const taskId = `single_${Date.now()}`;
-          await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId), { title: newTaskForm.title, targetShopId: newTaskForm.targetShopId, timestamp: Date.now() });
-          setNewTaskForm({ title: '', targetShopId: 'all' });
+          const promises = [];
+          if (newTaskForm.isAll) {
+            const taskId = `single_${Date.now()}_all`;
+            promises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId), { title: newTaskForm.title, targetShopId: 'all', timestamp: Date.now() }));
+          }
+          newTaskForm.shopIds.forEach(shopId => {
+            const taskId = `single_${Date.now()}_${shopId}`;
+            promises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId), { title: newTaskForm.title, targetShopId: shopId, timestamp: Date.now() }));
+          });
+          await Promise.all(promises);
+          setNewTaskForm({ title: '', isAll: true, shopIds: [] });
           showMsg('タスクを追加しました');
         } catch(e) { showMsg('追加に失敗しました', 'error'); }
       };
 
       const saveTemplate = () => {
         if (!templateForm.title) return showMsg('タスク名を入力してください', 'error');
+        if (!templateForm.isAllTarget && templateForm.targetShopIds.length === 0) return showMsg('対象店舗を選択してください', 'error');
         const isNew = !templateForm.id;
         const newTemplate = { ...templateForm, id: isNew ? Date.now().toString() : templateForm.id };
         const updatedTemplates = isNew ? [...(settings.taskTemplates || []), newTemplate] : (settings.taskTemplates || []).map(t => t.id === newTemplate.id ? newTemplate : t);
         saveSettings({ ...settings, taskTemplates: updatedTemplates });
-        setTemplateForm({ id: '', title: '', targetShopId: 'all', scheduleType: 'daily', scheduleValue: '1', time: '09:00' });
+        setTemplateForm({ id: '', title: '', isAllTarget: true, targetShopIds: [], scheduleType: 'daily', scheduleValue: '1', time: '09:00' });
         showMsg(isNew ? 'テンプレートを作成しました' : 'テンプレートを更新しました');
+      };
+      
+      const editTemplate = (t) => {
+        setTemplateForm({
+          id: t.id,
+          title: t.title,
+          isAllTarget: t.isAllTarget !== undefined ? t.isAllTarget : (t.targetShopId === 'all'),
+          targetShopIds: t.targetShopIds || (t.targetShopId && t.targetShopId !== 'all' ? [t.targetShopId] : []),
+          scheduleType: t.scheduleType || 'daily',
+          scheduleValue: t.scheduleValue || '1',
+          time: t.time || '09:00'
+        });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       };
 
       const [newShop, setNewShop] = useState('');
@@ -977,7 +1008,6 @@
                       </div>
                     </div>
 
-                    {/* --- 商材登録 --- */}
                     {settings.products && settings.products.length > 0 && (
                       <div className="mt-8">
                         <div className="flex items-center justify-between mb-3 mx-1">
@@ -1017,7 +1047,6 @@
                       </div>
                     )}
 
-                    {/* --- その他実績登録 --- */}
                     {settings.otherStats && settings.otherStats.length > 0 && (
                       <div className="mt-8 pt-6 border-t border-gray-200/50">
                         <div className="flex items-center justify-between mb-3 mx-1">
@@ -1063,7 +1092,6 @@
                       </div>
                     )}
 
-                    {/* --- ランキング --- */}
                     {rankings.length > 0 && (
                       <div className="mt-10 space-y-4">
                         <h3 className="font-bold text-xl text-gray-900 mb-4 ml-1">今週のランキング <span className="text-xs text-gray-400 font-medium ml-1">Top 3</span></h3>
@@ -1191,7 +1219,7 @@
                                       const gItems = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
                                       
                                       let current = 0;
-                                      monthRecords.filter(r => r.productId === p.id).forEach(r => {
+                                      monthRecords.filter(r => String(r.productId) === String(p.id)).forEach(r => {
                                         if (r.itemIds) {
                                           r.itemIds.forEach(id => { if (gItems.includes(id)) current++; });
                                         } else if (gItems.includes(r.itemId)) {
@@ -1219,7 +1247,7 @@
                                       const gItems = Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : []);
                                       
                                       let current = 0;
-                                      monthRecords.filter(r => r.otherStatId === os.id).forEach(r => {
+                                      monthRecords.filter(r => String(r.otherStatId) === String(os.id)).forEach(r => {
                                         if (r.counts) {
                                           gItems.forEach(gItem => {
                                             if (r.counts[gItem]) current += r.counts[gItem];
@@ -1345,7 +1373,6 @@
                     ) : (
                       <div className="bg-white p-5 rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border border-gray-100/50 space-y-8 animate-in fade-in">
                         
-                        {/* 項目別 合計グラフ */}
                         <div>
                           <h4 className="text-sm font-bold text-gray-900 border-b border-gray-100 pb-2 mb-4">項目別 合計</h4>
                           <div className="space-y-3.5">
@@ -1368,7 +1395,6 @@
                           </div>
                         </div>
 
-                        {/* スタッフ別 実績グラフ (ランキング項目基準) */}
                         <div>
                           <div className="flex justify-between items-end border-b border-gray-100 pb-2 mb-4">
                             <h4 className="text-sm font-bold text-gray-900">スタッフ別実績 <span className="text-[10px] text-gray-400 font-normal ml-1">(ランキング項目)</span></h4>
@@ -1439,12 +1465,12 @@
                             <div className="text-gray-400 text-[10px] font-medium mb-1">{r.date} · {(settings.shops || []).find(s=>s.id===r.shopId)?.name || '不明'} · {(settings.staffs || []).find(s=>s.id===r.staffId)?.name || '不明'}</div>
                             {r.otherStatId ? (
                               <div className="font-bold text-gray-900">
-                                {settings.otherStats?.find(os=>os.id===r.otherStatId)?.subCategory || '不明'} <span className="text-amber-500 mx-1">▶</span> 
+                                {settings.otherStats?.find(os=>String(os.id)===String(r.otherStatId))?.subCategory || '不明'} <span className="text-amber-500 mx-1">▶</span> 
                                 {r.counts ? Object.entries(r.counts).map(([k,v])=>`${k}:${v}`).join(', ') : ''}
                               </div>
                             ) : (
                               <div className="font-bold text-gray-900">
-                                {(settings.products || []).find(p=>p.id===r.productId)?.name || '不明'} <span className="text-amber-500 mx-1">▶</span> 
+                                {(settings.products || []).find(p=>String(p.id)===String(r.productId))?.name || '不明'} <span className="text-amber-500 mx-1">▶</span> 
                                 {r.itemIds ? r.itemIds.join(', ') : r.itemId}
                               </div>
                             )}
@@ -1608,7 +1634,6 @@
                           {share.deadline && <div className={`flex items-center font-bold ${isExpired ? 'text-red-500' : 'text-amber-500'}`}><Calendar size={12} className="mr-1"/>期限: {share.deadline}</div>}
                         </div>
 
-                        {/* タスクの場合のUI */}
                         {isTask && (
                           <div className="bg-[#f2f2f7] p-4 rounded-2xl mt-4">
                             <p className="text-xs font-bold text-gray-500 mb-3">対象スタッフの完了状況</p>
@@ -1631,7 +1656,6 @@
                           </div>
                         )}
 
-                        {/* 希望休の場合のUI */}
                         {isShift && (
                           <div className="bg-[#f2f2f7] p-4 rounded-2xl mt-4">
                             <p className="text-xs font-bold text-gray-500 mb-3">希望休の提出</p>
@@ -1666,14 +1690,12 @@
                           </div>
                         )}
 
-                        {/* 個人目標の場合のUI (入力枠のみ・メモは削除) */}
                         {isGoal && (
                           <div className="bg-[#f2f2f7] p-4 rounded-2xl mt-4 space-y-4">
                             <div className="flex justify-between items-center border-b border-gray-200 pb-2">
                               <p className="text-xs font-bold text-gray-500">対象月: <span className="text-gray-900 text-sm ml-1">{share.targetMonth}</span></p>
                             </div>
 
-                            {/* 目標入力フォーム */}
                             <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
                               <p className="text-xs font-bold text-amber-600 mb-2">自分の目標を入力して提出</p>
                               <select 
@@ -1738,7 +1760,6 @@
                               <button onClick={() => submitGoalForm(share.id)} className="w-full bg-gray-900 text-white py-2.5 rounded-xl text-xs font-bold active:scale-95 transition-transform">目標を提出・上書きする</button>
                             </div>
 
-                            {/* 提出された目標一覧 (メモは削除) */}
                             {Object.keys(share.goals || {}).length > 0 && (
                               <div className="space-y-3 mt-4 border-t border-gray-200 pt-4">
                                 <div className="flex flex-col mb-2">
@@ -1807,30 +1828,34 @@
                   <div className="space-y-6">
                     <div className="bg-white p-4 rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border border-gray-100/50">
                       <input 
-                        type="text" placeholder="タスク名" value={newTaskForm.title} 
+                        type="text" placeholder="タスク名" value={newTaskForm.title || ''} 
                         onChange={e => setNewTaskForm({...newTaskForm, title: e.target.value})}
                         className={`${inputClass} px-3 py-2.5 text-sm font-semibold outline-none mb-3`}
                       />
                       <div className="flex flex-wrap gap-2 mb-3 max-h-32 overflow-y-auto hide-scroll">
                         <label className="flex items-center space-x-1.5 text-xs bg-[#f2f2f7] px-2.5 py-1.5 rounded-lg border border-gray-200 cursor-pointer active:scale-95 transition-transform">
-                          <input type="checkbox" checked={newTaskForm.isAll} onChange={(e) => setNewTaskForm({...newTaskForm, isAll: e.target.checked})} className="rounded text-amber-500 focus:ring-amber-500 border-gray-300" />
+                          <input type="checkbox" checked={!!newTaskForm.isAll} onChange={(e) => setNewTaskForm({...newTaskForm, isAll: e.target.checked})} className="rounded text-amber-500 focus:ring-amber-500 border-gray-300" />
                           <span className="font-bold text-gray-700">全体</span>
                         </label>
-                        {(settings.shops || []).map(s => (
-                          <label key={s.id} className="flex items-center space-x-1.5 text-xs bg-[#f2f2f7] px-2.5 py-1.5 rounded-lg border border-gray-200 cursor-pointer active:scale-95 transition-transform">
-                            <input type="checkbox" checked={newTaskForm.shopIds.includes(s.id)} onChange={(e) => {
-                              const newIds = e.target.checked ? [...newTaskForm.shopIds, s.id] : newTaskForm.shopIds.filter(id => id !== s.id);
-                              setNewTaskForm({...newTaskForm, shopIds: newIds});
-                            }} className="rounded text-blue-500 focus:ring-blue-500 border-gray-300" />
-                            <span className="font-bold text-gray-700">{s.name}</span>
-                          </label>
-                        ))}
+                        {(settings.shops || []).map(s => {
+                          const isChecked = (newTaskForm.shopIds || []).includes(s.id);
+                          return (
+                            <label key={s.id} className="flex items-center space-x-1.5 text-xs bg-[#f2f2f7] px-2.5 py-1.5 rounded-lg border border-gray-200 cursor-pointer active:scale-95 transition-transform">
+                              <input type="checkbox" checked={isChecked} onChange={(e) => {
+                                const currentIds = newTaskForm.shopIds || [];
+                                const newIds = e.target.checked ? [...currentIds, s.id] : currentIds.filter(id => id !== s.id);
+                                setNewTaskForm({...newTaskForm, shopIds: newIds});
+                              }} className="rounded text-blue-500 focus:ring-blue-500 border-gray-300" />
+                              <span className="font-bold text-gray-700">{s.name}</span>
+                            </label>
+                          );
+                        })}
                       </div>
                       <button onClick={addSingleTask} className="w-full bg-gray-900 text-white font-bold py-2.5 flex items-center justify-center rounded-xl active:scale-95 transition-transform">追加する</button>
                     </div>
 
                     <div className="space-y-3">
-                      {[...tasks].sort((a, b) => {
+                      {[...(tasks || [])].sort((a, b) => {
                         if (a.targetShopId === 'all' && b.targetShopId !== 'all') return -1;
                         if (a.targetShopId !== 'all' && b.targetShopId === 'all') return 1;
                         if (a.targetShopId !== b.targetShopId) {
@@ -1840,7 +1865,7 @@
                           const valB = indexB === -1 ? 9999 : indexB;
                           if (valA !== valB) return valA - valB;
                         }
-                        return b.timestamp - a.timestamp;
+                        return (b.timestamp || 0) - (a.timestamp || 0);
                       }).map(task => {
                         const shopName = task.targetShopId === 'all' ? '全体' : ((settings.shops || []).find(s => s.id === task.targetShopId)?.name || '不明');
                         return (
@@ -1859,7 +1884,7 @@
                           </div>
                         );
                       })}
-                      {tasks.length === 0 && (
+                      {(!tasks || tasks.length === 0) && (
                         <div className="text-center py-12">
                           <CheckCircle size={40} className="mx-auto text-gray-200 mb-3" />
                           <p className="text-gray-400 text-sm font-bold">残っている作業はありません！</p>
@@ -1874,7 +1899,7 @@
                     <div className="bg-white p-5 rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border border-gray-100/50 space-y-4">
                       <h3 className="font-bold text-gray-900">{templateForm.id ? 'テンプレートを編集' : '新しいテンプレートを作成'}</h3>
                       <input 
-                        type="text" placeholder="タスク名" value={templateForm.title} onChange={e => setTemplateForm({...templateForm, title: e.target.value})}
+                        type="text" placeholder="タスク名" value={templateForm.title || ''} onChange={e => setTemplateForm({...templateForm, title: e.target.value})}
                         className={`${inputClass} px-3 py-2.5 text-sm font-bold`}
                       />
                       
@@ -1882,31 +1907,35 @@
                         <label className="block text-xs font-semibold text-gray-500 mb-1.5 ml-1">対象店舗 (複数選択可)</label>
                         <div className="flex flex-col gap-2 max-h-32 overflow-y-auto bg-[#f2f2f7] p-2 rounded-xl border border-gray-200">
                           <label className="flex items-center space-x-2 text-sm bg-white p-2 rounded-lg border border-gray-100 cursor-pointer active:scale-95 transition-transform">
-                            <input type="checkbox" checked={templateForm.isAllTarget} onChange={(e) => setTemplateForm({...templateForm, isAllTarget: e.target.checked})} className="rounded text-amber-500 focus:ring-amber-500 border-gray-300" />
+                            <input type="checkbox" checked={!!templateForm.isAllTarget} onChange={(e) => setTemplateForm({...templateForm, isAllTarget: e.target.checked})} className="rounded text-amber-500 focus:ring-amber-500 border-gray-300" />
                             <span className="font-bold text-gray-700">全体共通 (1つのタスクとして発行)</span>
                           </label>
-                          {(settings.shops || []).map(s => (
-                            <label key={s.id} className="flex items-center space-x-2 text-sm bg-white p-2 rounded-lg border border-gray-100 cursor-pointer active:scale-95 transition-transform">
-                              <input type="checkbox" checked={templateForm.targetShopIds.includes(s.id)} onChange={(e) => {
-                                const newIds = e.target.checked ? [...templateForm.targetShopIds, s.id] : templateForm.targetShopIds.filter(id => id !== s.id);
-                                setTemplateForm({...templateForm, targetShopIds: newIds});
-                              }} className="rounded text-blue-500 focus:ring-blue-500 border-gray-300" />
-                              <span className="font-bold text-gray-700">{s.name} (個別発行)</span>
-                            </label>
-                          ))}
+                          {(settings.shops || []).map(s => {
+                            const isChecked = (templateForm.targetShopIds || []).includes(s.id);
+                            return (
+                              <label key={s.id} className="flex items-center space-x-2 text-sm bg-white p-2 rounded-lg border border-gray-100 cursor-pointer active:scale-95 transition-transform">
+                                <input type="checkbox" checked={isChecked} onChange={(e) => {
+                                  const currentIds = templateForm.targetShopIds || [];
+                                  const newIds = e.target.checked ? [...currentIds, s.id] : currentIds.filter(id => id !== s.id);
+                                  setTemplateForm({...templateForm, targetShopIds: newIds});
+                                }} className="rounded text-blue-500 focus:ring-blue-500 border-gray-300" />
+                                <span className="font-bold text-gray-700">{s.name} (個別発行)</span>
+                              </label>
+                            );
+                          })}
                         </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-3 mt-2">
                         <div>
                           <label className="block text-xs font-semibold text-gray-500 mb-1.5 ml-1">発生タイミング</label>
-                          <select value={templateForm.scheduleType} onChange={e => setTemplateForm({...templateForm, scheduleType: e.target.value})} className={`${inputClass} px-3 py-2.5 text-sm`}>
+                          <select value={templateForm.scheduleType || 'daily'} onChange={e => setTemplateForm({...templateForm, scheduleType: e.target.value})} className={`${inputClass} px-3 py-2.5 text-sm`}>
                             <option value="daily">毎日</option><option value="weekly">毎週</option><option value="monthly">毎月</option>
                           </select>
                         </div>
                         <div>
                           <label className="block text-xs font-semibold text-gray-500 mb-1.5 ml-1">発生時間</label>
-                          <input type="time" value={templateForm.time} onChange={e => setTemplateForm({...templateForm, time: e.target.value})} className={`${inputClass} px-3 py-2.5 text-sm`} />
+                          <input type="time" value={templateForm.time || '09:00'} onChange={e => setTemplateForm({...templateForm, time: e.target.value})} className={`${inputClass} px-3 py-2.5 text-sm`} />
                         </div>
                       </div>
 
@@ -1914,7 +1943,7 @@
                         {templateForm.scheduleType === 'weekly' && (
                           <div>
                             <label className="block text-xs font-semibold text-gray-500 mb-1.5 ml-1">曜日</label>
-                            <select value={templateForm.scheduleValue} onChange={e => setTemplateForm({...templateForm, scheduleValue: e.target.value})} className={`${inputClass} px-3 py-2.5 text-sm`}>
+                            <select value={templateForm.scheduleValue || '1'} onChange={e => setTemplateForm({...templateForm, scheduleValue: e.target.value})} className={`${inputClass} px-3 py-2.5 text-sm`}>
                               <option value="0">日曜日</option><option value="1">月曜日</option><option value="2">火曜日</option>
                               <option value="3">水曜日</option><option value="4">木曜日</option><option value="5">金曜日</option><option value="6">土曜日</option>
                             </select>
@@ -1923,7 +1952,7 @@
                         {templateForm.scheduleType === 'monthly' && (
                           <div>
                             <label className="block text-xs font-semibold text-gray-500 mb-1.5 ml-1">日にち</label>
-                            <select value={templateForm.scheduleValue} onChange={e => setTemplateForm({...templateForm, scheduleValue: e.target.value})} className={`${inputClass} px-3 py-2.5 text-sm`}>
+                            <select value={templateForm.scheduleValue || '1'} onChange={e => setTemplateForm({...templateForm, scheduleValue: e.target.value})} className={`${inputClass} px-3 py-2.5 text-sm`}>
                               {[...Array(31)].map((_, i) => <option key={i+1} value={String(i+1)}>{i+1}日</option>)}
                             </select>
                           </div>
@@ -1952,9 +1981,9 @@
                         });
 
                         let scheduleText = '';
-                        if (t.scheduleType === 'daily') scheduleText = `毎日 ${t.time}`;
-                        if (t.scheduleType === 'weekly') scheduleText = `毎週 ${['日','月','火','水','木','金','土'][t.scheduleValue]}曜日 ${t.time}`;
-                        if (t.scheduleType === 'monthly') scheduleText = `毎月 ${t.scheduleValue}日 ${t.time}`;
+                        if (t.scheduleType === 'daily') scheduleText = `毎日 ${t.time || ''}`;
+                        if (t.scheduleType === 'weekly') scheduleText = `毎週 ${['日','月','火','水','木','金','土'][Number(t.scheduleValue || 0)]}曜日 ${t.time || ''}`;
+                        if (t.scheduleType === 'monthly') scheduleText = `毎月 ${t.scheduleValue || 1}日 ${t.time || ''}`;
 
                         return (
                           <div key={t.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center">
