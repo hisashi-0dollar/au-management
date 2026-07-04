@@ -150,11 +150,8 @@
         const url = settings.gasUrl || GAS_URL;
         if (!url) return;
         try {
-          const res = await fetch(`${url}?action=getRecords&since=${since}`, {
-            method: 'GET',
-            mode: 'cors',
-            redirect: 'follow'
-          });
+          // 修正: GETリクエストのオプションをシンプルにし、通信を安定化
+          const res = await fetch(`${url}?action=getRecords&since=${since}`);
           if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
           const data = await res.json();
           // 日付のズレを修正して正規化（スプレッドシートからのDate文字列変換対策）
@@ -163,7 +160,14 @@
             if (dStr.includes('T')) {
               dStr = getLocalDateString(new Date(dStr));
             }
-            return { ...r, date: dStr };
+            return { 
+              ...r, 
+              date: dStr,
+              shopId: r.shopId ? String(r.shopId) : '',
+              staffId: r.staffId ? String(r.staffId) : '',
+              productId: r.productId ? String(r.productId) : '',
+              otherStatId: r.otherStatId ? String(r.otherStatId) : ''
+            };
           });
           setRecords(normalizedData);
         } catch (e) {
@@ -254,11 +258,9 @@
 
           const url = settings.gasUrl || GAS_URL;
           if (url) {
+            // 修正: POSTリクエストもシンプル化
             const res = await fetch(url, { 
               method: 'POST', 
-              mode: 'cors',
-              redirect: 'follow',
-              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({ action: 'addRecords', records: newRecords }) 
             });
             if(!res.ok) throw new Error("Network response was not ok");
@@ -298,11 +300,9 @@
 
           const url = settings.gasUrl || GAS_URL;
           if (url) {
+            // 修正: POSTリクエストもシンプル化
             const res = await fetch(url, { 
               method: 'POST', 
-              mode: 'cors',
-              redirect: 'follow',
-              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({ action: 'addRecords', records: newRecords }) 
             });
             if(!res.ok) throw new Error("Network response was not ok");
@@ -502,11 +502,9 @@
         try { 
           const url = settings.gasUrl || GAS_URL;
           if (url) {
+            // 修正: POSTリクエストもシンプル化
             const res = await fetch(url, { 
               method: 'POST', 
-              mode: 'cors',
-              redirect: 'follow',
-              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({ action: 'deleteRecord', id: id }) 
             });
             if(!res.ok) throw new Error("Network response was not ok");
@@ -764,10 +762,48 @@
                   <div className="bg-amber-50 border border-amber-200 rounded-3xl p-4 shadow-sm relative overflow-hidden">
                     <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-400"></div>
                     <div className="flex items-center text-amber-800 font-bold mb-2 ml-2">
-                      <BellRing size={16} className="mr-2" />
-                      未完了のタスク・希望休があります ({urgentShares.length}件)
+                      <BellRing size={16} className="mr-2 shrink-0" />
+                      未完了のタスク・希望休 ({urgentShares.length}件)
                     </div>
-                    <button onClick={() => setTab('share')} className="ml-2 w-full mt-2 bg-white text-amber-700 border border-amber-200 font-semibold py-2 rounded-xl text-sm active:bg-amber-50">
+                    
+                    <div className="ml-2 mb-3 space-y-2 max-h-32 overflow-y-auto hide-scroll pr-1">
+                      {urgentShares.map(share => {
+                        let uncompletedNames = [];
+                        if (share.type === 'task') {
+                           const targetStaffs = share.targetStaffIds || [];
+                           const completedStaffs = share.completedStaffIds || [];
+                           targetStaffs.filter(id => !completedStaffs.includes(id)).forEach(id => {
+                             const st = (settings.staffs || []).find(s => s.id === id);
+                             if (st) uncompletedNames.push(st.name);
+                           });
+                           
+                           const targetShops = share.targetShopIds || [];
+                           const completedShops = share.completedShopIds || [];
+                           targetShops.filter(id => !completedShops.includes(id)).forEach(id => {
+                             const sh = (settings.shops || []).find(s => s.id === id);
+                             if (sh) uncompletedNames.push(sh.name);
+                           });
+                        } else if (share.type === 'shift') {
+                           const submittedIds = Object.keys(share.shiftRequests || {});
+                           (settings.staffs || []).filter(st => share.targetShopId === 'all' || st.shopId === share.targetShopId).forEach(st => {
+                             if (!submittedIds.includes(st.id)) uncompletedNames.push(st.name);
+                           });
+                        }
+
+                        return (
+                          <div key={share.id} className="text-xs bg-white/60 p-2 rounded-lg border border-amber-100/50">
+                            <div className="font-bold text-amber-900 truncate">{share.title}</div>
+                            {uncompletedNames.length > 0 && (
+                              <div className="text-[10px] text-amber-700 mt-1 leading-tight">
+                                <span className="font-semibold opacity-70">未:</span> {uncompletedNames.join(', ')}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <button onClick={() => setTab('share')} className="ml-2 w-[calc(100%-8px)] bg-white text-amber-700 border border-amber-200 font-semibold py-2 rounded-xl text-sm active:bg-amber-50 transition-colors">
                       共有タブで確認する
                     </button>
                   </div>
