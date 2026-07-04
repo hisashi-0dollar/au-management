@@ -35,15 +35,15 @@
   <script type="text/babel" data-type="module">
     import React, { useState, useEffect, useMemo } from 'react';
     import { createRoot } from 'react-dom/client';
-    import { Edit, PieChart, Settings as SettingsIcon, Plus, Trash2, CheckCircle, AlertCircle, Save, X, MessageSquare, ChevronRight, Calendar, User, Clock, BellRing, Square, CheckSquare, ArrowUp, ArrowDown } from 'lucide-react';
+    import { Edit, PieChart, Settings as SettingsIcon, Plus, Trash2, CheckCircle, AlertCircle, Save, X, MessageSquare, Calendar, User, Clock, BellRing, Square, CheckSquare, ArrowUp, ArrowDown } from 'lucide-react';
     
     import { initializeApp } from "firebase/app";
     import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "firebase/auth";
     import { getFirestore, doc, setDoc, collection, addDoc, updateDoc, onSnapshot, deleteDoc, query, where } from "firebase/firestore";
     import { getAnalytics, isSupported } from "firebase/analytics";
 
-    // GASの連携URL
-    const GAS_URL = 'https://script.google.com/macros/s/AKfycbxc9g-ohnLpYJEWCslkwloiNUrzMncR75oiePwWVpms5KhrMHvEVtx3m0k6C4kuNZidWg/exec';
+    // 連携用GASの新しいURL
+    const GAS_URL = 'https://script.google.com/macros/s/AKfycbwTvFPfJjL9oTnxR8SCX_L9AZW_iT1va8_G4a4m-OqigO6tPYL8cn5EXAqxRnXduhh58w/exec';
 
     function App() {
       const [user, setUser] = useState(null);
@@ -62,20 +62,20 @@
       
       const [dataType, setDataType] = useState('product'); // 'product', 'other', 'goal'
 
-      // 追加・変更: タブの状態に応じて取得期間を自動で切り替えるスマートな設計
+      // データタブは「当月の1日以降」、それ以外は「直近7日」
       const dataSince = useMemo(() => {
         if (tab === 'analytics') {
-          return 0; // データタブを開いている間は「全期間」のデータを読み込む
+          const d = new Date();
+          d.setDate(1);
+          d.setHours(0, 0, 0, 0);
+          return d.getTime();
         }
-        
-        // それ以外のタブ（登録・共有・設定）は直近7日分だけを読み込み、動作を劇的に軽くする
         const d = new Date();
         d.setDate(d.getDate() - 7);
         d.setHours(0, 0, 0, 0);
         return d.getTime();
       }, [tab]);
 
-      // 完全に空の初期設定 + GAS URL
       const defaultSettings = {
         adminPassword: '0000',
         shops: [],
@@ -130,6 +130,19 @@
         return () => unsubscribe();
       }, []);
 
+      // GASからのデータフェッチ
+      const fetchRecordsFromGas = async (since) => {
+        const url = settings.gasUrl || GAS_URL;
+        if (!url) return;
+        try {
+          const res = await fetch(`${url}?action=getRecords&since=${since}`);
+          const data = await res.json();
+          setRecords(data);
+        } catch (e) {
+          console.error("GAS fetch error:", e);
+        }
+      };
+
       useEffect(() => {
         if (!user || !db) return;
         const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'main');
@@ -146,25 +159,12 @@
         return () => { unsubSettings(); unsubShares(); };
       }, [user, db, appId]);
 
-      const fetchRecordsFromGas = async (since) => {
-        const url = settings.gasUrl || GAS_URL;
-        if (!url) return;
-        try {
-          const res = await fetch(`${url}?action=getRecords&since=${since}`);
-          const data = await res.json();
-          setRecords(data);
-        } catch (e) {
-          console.error("GAS fetch error:", e);
-        }
-      };
-
       useEffect(() => {
         if (!user || !db || !settings) return;
         const url = settings.gasUrl || GAS_URL;
 
         if (url) {
           fetchRecordsFromGas(dataSince);
-          // 15秒ごとにポーリングして自動更新
           const timer = setInterval(() => fetchRecordsFromGas(dataSince), 15000);
           return () => clearInterval(timer);
         } else {
@@ -208,11 +208,18 @@
         if (productsToSubmit.length === 0) return showMsg('少なくとも1つの商材で項目を選択してください', 'error');
         
         try {
-          const newRecords = productsToSubmit.map(pId => ({
-            id: Date.now().toString(36) + Math.random().toString(36).substring(2),
-            date: recForm.date, shopId: recForm.shopId, staffId: recForm.staffId, 
-            productId: pId, itemIds: selectedItems[pId], timestamp: Date.now()
-          }));
+          const shopName = (settings.shops || []).find(s => s.id === recForm.shopId)?.name || '不明';
+          const staffName = (settings.staffs || []).find(s => s.id === recForm.staffId)?.name || '不明';
+
+          const newRecords = productsToSubmit.map(pId => {
+            const product = (settings.products || []).find(p => p.id === pId);
+            return {
+              id: Date.now().toString(36) + Math.random().toString(36).substring(2),
+              date: recForm.date, shopId: recForm.shopId, staffId: recForm.staffId, 
+              productId: pId, itemIds: selectedItems[pId], timestamp: Date.now(),
+              shopName: shopName, staffName: staffName, productName: product?.name || '不明'
+            };
+          });
 
           const url = settings.gasUrl || GAS_URL;
           if (url) {
@@ -236,13 +243,18 @@
         if (statsToSubmit.length === 0) return showMsg('件数が入力されていません', 'error');
         
         try {
+          const shopName = (settings.shops || []).find(s => s.id === recForm.shopId)?.name || '不明';
+          const staffName = (settings.staffs || []).find(s => s.id === recForm.staffId)?.name || '不明';
+
           const newRecords = statsToSubmit.map(osId => {
+            const otherStat = (settings.otherStats || []).find(os => os.id === osId);
             const filteredCounts = {};
             Object.keys(otherCounts[osId]).forEach(k => { if (otherCounts[osId][k] > 0) filteredCounts[k] = otherCounts[osId][k]; });
             return {
               id: Date.now().toString(36) + Math.random().toString(36).substring(2),
               date: recForm.date, shopId: recForm.shopId, staffId: recForm.staffId, 
-              otherStatId: osId, counts: filteredCounts, timestamp: Date.now()
+              otherStatId: osId, counts: filteredCounts, timestamp: Date.now(),
+              shopName: shopName, staffName: staffName, productName: otherStat?.subCategory || '不明'
             };
           });
 
@@ -260,19 +272,6 @@
           showMsg('その他実績を登録しました');
           setOtherCounts({}); 
         } catch (err) { showMsg('登録に失敗しました', 'error'); }
-      };
-
-      const deleteRecord = async (id) => {
-        try { 
-          const url = settings.gasUrl || GAS_URL;
-          if (url) {
-            await fetch(url, { method: 'POST', body: JSON.stringify({ action: 'deleteRecord', id: id }) });
-            fetchRecordsFromGas(dataSince);
-          } else {
-            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'records', id)); 
-          }
-          showMsg('実績を削除しました'); 
-        } catch (e) { showMsg('削除失敗', 'error'); }
       };
 
       const currentWeekRecords = useMemo(() => {
@@ -348,7 +347,6 @@
 
       const filteredRecords = useMemo(() => {
         return records.filter(r => {
-          if (period === 'all') return true; // 全期間モードの追加
           if (period === 'day') return r.date === baseDate;
           if (period === 'week') {
             const d = new Date(baseDate), day = d.getDay();
@@ -446,6 +444,20 @@
         setSortConfig({ key, direction });
       };
 
+      const deleteRecord = async (id) => {
+        try { 
+          const url = settings.gasUrl || GAS_URL;
+          if (url) {
+            await fetch(url, { method: 'POST', body: JSON.stringify({ action: 'deleteRecord', id: id }) });
+            fetchRecordsFromGas(dataSince);
+          } else {
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'records', id)); 
+          }
+          showMsg('実績を削除しました'); 
+        } 
+        catch (e) { showMsg('削除失敗', 'error'); }
+      };
+
       const [isCreatingShare, setIsCreatingShare] = useState(false);
       const [editingShareId, setEditingShareId] = useState(null);
       
@@ -460,16 +472,21 @@
       const updateGoalForm = (shareId, field, value) => {
         setGoalForms(prev => {
           const current = prev[shareId] || { staffId: '', values: {} };
-          if (field === 'staffId') return { ...prev, [shareId]: { ...current, staffId: value } };
-          else return { ...prev, [shareId]: { ...current, values: { ...current.values, [field]: value } } };
+          if (field === 'staffId') {
+            return { ...prev, [shareId]: { ...current, staffId: value } };
+          } else {
+            return { ...prev, [shareId]: { ...current, values: { ...current.values, [field]: value } } };
+          }
         });
       };
 
       const submitGoalForm = async (shareId) => {
         const form = goalForms[shareId];
         if (!form || !form.staffId) return showMsg('自分の名前を選択してください', 'error');
+        
         const hasValue = Object.values(form.values).some(v => v !== '' && v !== null && !isNaN(v));
         if (!hasValue) return showMsg('目標値を少なくとも1つは入力してください', 'error');
+
         const share = shares.find(s => s.id === shareId);
         if (!share) return;
 
@@ -512,11 +529,15 @@
         
         try {
           if (editingShareId) {
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', editingShareId), { ...shareForm, timestamp: Date.now() });
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', editingShareId), {
+              ...shareForm, timestamp: Date.now()
+            });
             showMsg('共有事項を更新しました');
           } else {
             const sharesRef = collection(db, 'artifacts', appId, 'public', 'data', 'shares');
-            await addDoc(sharesRef, { ...shareForm, timestamp: Date.now(), completedStaffIds: [], shiftRequests: {} });
+            await addDoc(sharesRef, {
+              ...shareForm, timestamp: Date.now(), completedStaffIds: [], shiftRequests: {}
+            });
             showMsg('共有事項を投稿しました');
           }
           resetShareForm();
@@ -525,9 +546,15 @@
 
       const editShare = (share) => {
         setShareForm({
-          type: share.type || 'task', targetShopId: share.targetShopId || 'all', creatorStaffId: share.creatorStaffId || '',
-          title: share.title || '', content: share.content || '', deadline: share.deadline || '',
-          targetStaffIds: share.targetStaffIds || [], goals: share.goals || {}, targetMonth: share.targetMonth || new Date().toISOString().substring(0, 7)
+          type: share.type || 'task',
+          targetShopId: share.targetShopId || 'all',
+          creatorStaffId: share.creatorStaffId || '',
+          title: share.title || '',
+          content: share.content || '',
+          deadline: share.deadline || '',
+          targetStaffIds: share.targetStaffIds || [],
+          goals: share.goals || {},
+          targetMonth: share.targetMonth || new Date().toISOString().substring(0, 7)
         });
         setEditingShareId(share.id);
         setIsCreatingShare(true);
@@ -562,7 +589,7 @@
       const [isAuthenticatedSettings, setIsAuthenticatedSettings] = useState(false);
       const [inputPassword, setInputPassword] = useState('');
       const [newPassword, setNewPassword] = useState('');
-      const [newGasUrl, setNewGasUrl] = useState('');
+      const [newGasUrl, setNewGasUrl] = useState(GAS_URL);
 
       const [newShop, setNewShop] = useState('');
       const [newStaff, setNewStaff] = useState({ shopId: '', name: '' });
@@ -575,7 +602,7 @@
       const existingOtherMainCategories = useMemo(() => Array.from(new Set((settings.otherStats||[]).map(os => os.mainCategory).filter(Boolean))), [settings.otherStats]);
 
       useEffect(() => {
-        if (settings.gasUrl !== undefined) setNewGasUrl(settings.gasUrl);
+        if (settings.gasUrl) setNewGasUrl(settings.gasUrl);
       }, [settings.gasUrl]);
 
       const saveSettings = async (newSettingsData) => {
@@ -625,6 +652,7 @@
       const removeSetting = (key, id) => saveSettings({ ...settings, [key]: (settings[key] || []).filter(item => item.id !== id) });
       const updateRankingItem = (productId, rankingItem) => saveSettings({ ...settings, products: (settings.products || []).map(p => p.id === productId ? { ...p, rankingItem } : p) });
       const updateOtherStatRankingItem = (osId, rankingItem) => saveSettings({ ...settings, otherStats: (settings.otherStats||[]).map(os => os.id === osId ? { ...os, rankingItem } : os) });
+      
       const updateGoalItem = (productId, goalItem) => saveSettings({ ...settings, products: (settings.products || []).map(p => p.id === productId ? { ...p, goalItem } : p) });
       const updateOtherStatGoalItem = (osId, goalItem) => saveSettings({ ...settings, otherStats: (settings.otherStats||[]).map(os => os.id === osId ? { ...os, goalItem } : os) });
 
@@ -643,6 +671,7 @@
 
       return (
         <div className="max-w-md w-full mx-auto min-h-screen pb-24 relative selection:bg-amber-200">
+          
           <header className="bg-white/70 backdrop-blur-xl border-b border-gray-200/50 p-4 sticky top-0 z-50">
             <h1 className="font-bold text-lg text-center tracking-tight text-gray-900">au実績管理</h1>
           </header>
@@ -658,6 +687,7 @@
             {/* ======================= 実績登録タブ ======================= */}
             {tab === 'record' && (
               <div className="animate-in fade-in space-y-6">
+                
                 {urgentShares.length > 0 && (
                   <div className="bg-amber-50 border border-amber-200 rounded-3xl p-4 shadow-sm relative overflow-hidden">
                     <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-400"></div>
@@ -703,6 +733,7 @@
                       </div>
                     </div>
 
+                    {/* --- 商材登録 --- */}
                     {settings.products && settings.products.length > 0 && (
                       <div className="mt-8">
                         <div className="flex items-center justify-between mb-3 mx-1">
@@ -736,16 +767,20 @@
                             );
                           })}
                         </div>
-                        <button onClick={submitProductRecords} className={`w-full ${btnClass} mt-2`}>選択した商材実績を登録する</button>
+                        <button onClick={submitProductRecords} className={`w-full ${btnClass} mt-2`}>
+                          選択した商材実績を登録する
+                        </button>
                       </div>
                     )}
 
+                    {/* --- その他実績登録 --- */}
                     {settings.otherStats && settings.otherStats.length > 0 && (
                       <div className="mt-8 pt-6 border-t border-gray-200/50">
                         <div className="flex items-center justify-between mb-3 mx-1">
                           <h3 className="font-semibold text-lg text-gray-900">その他実績の登録</h3>
                           <span className="text-[10px] text-amber-600 font-bold bg-amber-50 px-2.5 py-1 rounded-full border border-amber-100">件数入力</span>
                         </div>
+                        
                         <div className="flex overflow-x-auto snap-x snap-mandatory gap-4 pb-4 px-1 hide-scroll">
                           {settings.otherStats.map(os => {
                             const counts = otherCounts[os.id] || {};
@@ -761,9 +796,13 @@
                                         <div key={item} className="flex justify-between items-center">
                                           <span className="text-sm font-medium text-gray-700">{item}</span>
                                           <div className="flex items-center gap-4 bg-[#f2f2f7] rounded-full px-2 py-1">
-                                            <button onClick={() => handleOtherCount(os.id, item, -1)} className="w-8 h-8 rounded-full bg-white shadow-sm text-gray-600 flex items-center justify-center active:scale-95 transition-transform"><span className="text-lg leading-none mb-0.5">-</span></button>
+                                            <button onClick={() => handleOtherCount(os.id, item, -1)} className="w-8 h-8 rounded-full bg-white shadow-sm text-gray-600 flex items-center justify-center active:scale-95 transition-transform">
+                                              <span className="text-lg leading-none mb-0.5">-</span>
+                                            </button>
                                             <span className="w-6 text-center font-bold text-gray-900 text-lg">{count}</span>
-                                            <button onClick={() => handleOtherCount(os.id, item, 1)} className="w-8 h-8 rounded-full bg-amber-100 shadow-sm text-amber-700 flex items-center justify-center active:scale-95 transition-transform"><span className="text-lg leading-none mb-0.5">+</span></button>
+                                            <button onClick={() => handleOtherCount(os.id, item, 1)} className="w-8 h-8 rounded-full bg-amber-100 shadow-sm text-amber-700 flex items-center justify-center active:scale-95 transition-transform">
+                                              <span className="text-lg leading-none mb-0.5">+</span>
+                                            </button>
                                           </div>
                                         </div>
                                       );
@@ -774,24 +813,32 @@
                             );
                           })}
                         </div>
-                        <button onClick={submitOtherRecords} className={`w-full bg-amber-500 text-white font-semibold py-3.5 rounded-2xl active:bg-amber-600 transition-transform active:scale-[0.98] shadow-sm mt-2`}>入力したその他実績を登録する</button>
+                        <button onClick={submitOtherRecords} className={`w-full bg-amber-500 text-white font-semibold py-3.5 rounded-2xl active:bg-amber-600 transition-transform active:scale-[0.98] shadow-sm mt-2`}>
+                          入力したその他実績を登録する
+                        </button>
                       </div>
                     )}
 
+                    {/* --- ランキング --- */}
                     {rankings.length > 0 && (
                       <div className="mt-10 space-y-4">
                         <h3 className="font-bold text-xl text-gray-900 mb-4 ml-1">今週のランキング <span className="text-xs text-gray-400 font-medium ml-1">Top 3</span></h3>
                         <div className="grid grid-cols-1 gap-4">
                           {rankings.map(product => (
                             <div key={product.id} className="bg-white p-5 rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border border-gray-100/50 relative overflow-hidden">
-                              <div className="absolute -right-6 -top-6 text-gray-50 opacity-60 pointer-events-none"><PieChart size={120} strokeWidth={1} /></div>
+                              <div className="absolute -right-6 -top-6 text-gray-50 opacity-60 pointer-events-none">
+                                <PieChart size={120} strokeWidth={1} />
+                              </div>
                               <div className="flex justify-between items-center mb-5 relative z-10">
                                 <div>
                                   <div className="text-[10px] text-amber-500 font-bold mb-0.5">{product.category || '未分類'}</div>
                                   <h4 className="font-bold text-gray-900 text-base">{product.name}</h4>
                                 </div>
-                                <span className="text-[10px] text-gray-500 font-bold bg-gray-100 px-2.5 py-1.5 rounded-lg">集計: {product.rankingItem}</span>
+                                <span className="text-[10px] text-gray-500 font-bold bg-gray-100 px-2.5 py-1.5 rounded-lg">
+                                  集計: {product.rankingItem}
+                                </span>
                               </div>
+                              
                               {product.ranking.length > 0 ? (
                                 <ul className="space-y-3 relative z-10">
                                   {product.ranking.map((r, idx) => {
@@ -799,15 +846,21 @@
                                     return (
                                       <li key={idx} className="flex justify-between items-center text-sm bg-[#f2f2f7] p-3 rounded-2xl">
                                         <div className="flex items-center">
-                                          <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold mr-3 ${colors[idx]}`}>{idx + 1}</span>
+                                          <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold mr-3 ${colors[idx]}`}>
+                                            {idx + 1}
+                                          </span>
                                           <span className="font-bold text-gray-800">{r.staffName}</span>
                                         </div>
-                                        <div className="font-black text-gray-900 text-lg">{r.count} <span className="text-xs text-gray-500 font-medium ml-0.5">件</span></div>
+                                        <div className="font-black text-gray-900 text-lg">
+                                          {r.count} <span className="text-xs text-gray-500 font-medium ml-0.5">件</span>
+                                        </div>
                                       </li>
                                     );
                                   })}
                                 </ul>
-                              ) : <p className="text-gray-400 text-xs text-center py-4 relative z-10 bg-gray-50 rounded-2xl">今週はまだ実績がありません</p>}
+                              ) : (
+                                <p className="text-gray-400 text-xs text-center py-4 relative z-10 bg-gray-50 rounded-2xl">今週はまだ実績がありません</p>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -822,6 +875,7 @@
             {tab === 'analytics' && (
               <div className="animate-in fade-in space-y-5">
                 <h2 className="font-bold text-2xl text-gray-900 tracking-tight mb-2 ml-1">実績データ</h2>
+                
                 <div className="bg-white/60 backdrop-blur-md p-1.5 rounded-2xl shadow-sm border border-gray-200/50 flex">
                   <button onClick={() => {setDataType('product'); setSortConfig({key:'total', direction:'desc'});}} className={`flex-1 py-2 text-[11px] font-semibold rounded-xl transition-all duration-200 ${dataType === 'product' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>商材実績</button>
                   <button onClick={() => {setDataType('other'); setSortConfig({key:'total', direction:'desc'});}} className={`flex-1 py-2 text-[11px] font-semibold rounded-xl transition-all duration-200 ${dataType === 'other' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>その他集計</button>
@@ -829,6 +883,7 @@
                 </div>
 
                 <div className="bg-white p-3.5 rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border border-gray-100/50 space-y-3">
+                  <p className="text-[10px] text-gray-500 mb-1 px-1">※アプリでは「当月分」のデータのみ確認できます。先月以前のデータはスプレッドシートをご参照ください。</p>
                   {dataType === 'goal' ? (
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold text-gray-500 whitespace-nowrap ml-1">対象月:</span>
@@ -837,15 +892,13 @@
                   ) : (
                     <>
                       <div className="flex gap-2 bg-[#f2f2f7] p-1 rounded-xl">
-                        {['day','week','month','all'].map(p => (
+                        {['day','week','month'].map(p => (
                           <button key={p} onClick={() => setPeriod(p)} className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${period === p ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
-                            {p === 'day' ? '日別' : p === 'week' ? '週別' : p === 'month' ? '月別' : '全期間'}
+                            {p === 'day' ? '日別' : p === 'week' ? '週別' : '月別'}
                           </button>
                         ))}
                       </div>
-                      {period !== 'all' && (
-                        <input type="date" value={baseDate} onChange={e => setBaseDate(e.target.value)} className={`${inputClass} text-sm py-2 px-3 bg-[#f2f2f7]`} />
-                      )}
+                      <input type="date" value={baseDate} onChange={e => setBaseDate(e.target.value)} className={`${inputClass} text-sm py-2 px-3 bg-[#f2f2f7]`} />
                     </>
                   )}
                 </div>
@@ -1029,6 +1082,8 @@
                       </div>
                     ) : (
                       <div className="bg-white p-5 rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border border-gray-100/50 space-y-8 animate-in fade-in">
+                        
+                        {/* 項目別 合計グラフ */}
                         <div>
                           <h4 className="text-sm font-bold text-gray-900 border-b border-gray-100 pb-2 mb-4">項目別 合計</h4>
                           <div className="space-y-3.5">
@@ -1051,11 +1106,13 @@
                           </div>
                         </div>
 
+                        {/* スタッフ別 実績グラフ (ランキング項目基準) */}
                         <div>
                           <div className="flex justify-between items-end border-b border-gray-100 pb-2 mb-4">
                             <h4 className="text-sm font-bold text-gray-900">スタッフ別実績 <span className="text-[10px] text-gray-400 font-normal ml-1">(ランキング項目)</span></h4>
                             <span className="text-[10px] text-gray-400 font-bold bg-gray-100 px-2.5 py-1 rounded-full">タップで詳細</span>
                           </div>
+                          
                           <div className="space-y-4">
                             {[...currentTableData.data].sort((a,b) => b.rankingCount - a.rankingCount).map(row => {
                               const maxStaffTotal = Math.max(...currentTableData.data.map(r => r.rankingCount)) || 1;
@@ -1076,6 +1133,7 @@
                                     </div>
                                     <div className="w-10 text-right font-bold text-gray-900 ml-3">{row.rankingCount}</div>
                                   </div>
+                                  
                                   {isExpanded && (
                                     <div className="ml-24 mt-2 p-3 bg-[#f2f2f7] rounded-xl text-xs space-y-1.5 animate-in slide-in-from-top-2">
                                       <div className="flex justify-between font-bold text-gray-500 mb-1 border-b border-gray-200 pb-1.5">
@@ -1144,8 +1202,12 @@
                 <div className="flex justify-between items-end mb-2 ml-1">
                   <h2 className="font-bold text-2xl text-gray-900 tracking-tight">共有ボード</h2>
                   <button onClick={() => {
-                    if (!isCreatingShare) { resetShareForm(); setIsCreatingShare(true); } 
-                    else { resetShareForm(); }
+                    if (!isCreatingShare) {
+                      resetShareForm();
+                      setIsCreatingShare(true);
+                    } else {
+                      resetShareForm();
+                    }
                   }} className="bg-gray-900 text-white p-2.5 rounded-full active:scale-95 transition-transform shadow-sm">
                     {isCreatingShare ? <X size={20}/> : <Plus size={20}/>}
                   </button>
@@ -1264,7 +1326,9 @@
                       <div key={share.id} className={`bg-white p-5 rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border ${isExpired ? 'border-red-100' : 'border-gray-100/50'} relative`}>
                         <div className="flex justify-between items-start mb-3">
                           <div className="flex items-center gap-2">
-                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-md ${typeColors[share.type] || 'bg-gray-50 text-gray-600'}`}>{typeLabels[share.type] || '共有'}</span>
+                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-md ${typeColors[share.type] || 'bg-gray-50 text-gray-600'}`}>
+                              {typeLabels[share.type] || '共有'}
+                            </span>
                             <span className="text-[10px] font-bold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-md">{targetShop}</span>
                           </div>
                           <div className="flex items-center gap-3">
@@ -1282,6 +1346,7 @@
                           {share.deadline && <div className={`flex items-center font-bold ${isExpired ? 'text-red-500' : 'text-amber-500'}`}><Calendar size={12} className="mr-1"/>期限: {share.deadline}</div>}
                         </div>
 
+                        {/* タスクの場合のUI */}
                         {isTask && (
                           <div className="bg-[#f2f2f7] p-4 rounded-2xl mt-4">
                             <p className="text-xs font-bold text-gray-500 mb-3">対象スタッフの完了状況</p>
@@ -1291,7 +1356,8 @@
                                 const isCompleted = share.completedStaffIds?.includes(staffId);
                                 return (
                                   <button 
-                                    key={staffId} onClick={() => toggleTaskCompletion(share, staffId)}
+                                    key={staffId} 
+                                    onClick={() => toggleTaskCompletion(share, staffId)}
                                     className={`flex items-center px-3 py-1.5 rounded-xl text-sm font-semibold transition-all active:scale-95 ${isCompleted ? 'bg-gray-900 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200'}`}
                                   >
                                     {isCompleted ? <CheckSquare size={14} className="mr-1.5 opacity-80" /> : <Square size={14} className="mr-1.5 opacity-50" />}
@@ -1303,6 +1369,7 @@
                           </div>
                         )}
 
+                        {/* 希望休の場合のUI */}
                         {isShift && (
                           <div className="bg-[#f2f2f7] p-4 rounded-2xl mt-4">
                             <p className="text-xs font-bold text-gray-500 mb-3">希望休の提出</p>
@@ -1337,12 +1404,14 @@
                           </div>
                         )}
 
+                        {/* 個人目標の場合のUI (入力とメモのみ) */}
                         {isGoal && (
                           <div className="bg-[#f2f2f7] p-4 rounded-2xl mt-4 space-y-4">
                             <div className="flex justify-between items-center border-b border-gray-200 pb-2">
                               <p className="text-xs font-bold text-gray-500">対象月: <span className="text-gray-900 text-sm ml-1">{share.targetMonth}</span></p>
                             </div>
 
+                            {/* 目標入力フォーム */}
                             <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
                               <p className="text-xs font-bold text-amber-600 mb-2">自分の目標を入力して提出</p>
                               <select 
@@ -1362,7 +1431,9 @@
                                     <span className="text-[10px] font-bold text-gray-700 truncate">{p.name} <span className="text-amber-500">({p.goalItem})</span></span>
                                     <div className="flex items-center mt-1">
                                       <input 
-                                        type="number" min="0" placeholder="件数"
+                                        type="number" 
+                                        min="0"
+                                        placeholder="件数"
                                         value={goalForms[share.id]?.values?.['p_' + p.id] ?? ''}
                                         onChange={e => updateGoalForm(share.id, 'p_' + p.id, e.target.value === '' ? '' : parseInt(e.target.value, 10))}
                                         className="w-full text-right px-2 py-1.5 text-sm font-bold rounded-md bg-white border border-gray-200 focus:ring-1 focus:ring-amber-500"
@@ -1375,7 +1446,9 @@
                                     <span className="text-[10px] font-bold text-gray-700 truncate">{os.subCategory} <span className="text-amber-500">({os.goalItem})</span></span>
                                     <div className="flex items-center mt-1">
                                       <input 
-                                        type="number" min="0" placeholder="件数"
+                                        type="number" 
+                                        min="0"
+                                        placeholder="件数"
                                         value={goalForms[share.id]?.values?.['o_' + os.id] ?? ''}
                                         onChange={e => updateGoalForm(share.id, 'o_' + os.id, e.target.value === '' ? '' : parseInt(e.target.value, 10))}
                                         className="w-full text-right px-2 py-1.5 text-sm font-bold rounded-md bg-white border border-gray-200 focus:ring-1 focus:ring-amber-500"
@@ -1390,6 +1463,7 @@
                               <button onClick={() => submitGoalForm(share.id)} className="w-full bg-gray-900 text-white py-2.5 rounded-xl text-xs font-bold active:scale-95 transition-transform">目標を提出・上書きする</button>
                             </div>
 
+                            {/* 提出された目標一覧 (進捗メモのみ) */}
                             {Object.keys(share.goals || {}).length > 0 && (
                               <div className="space-y-3 mt-4 border-t border-gray-200 pt-4">
                                 <div className="flex flex-col mb-2">
@@ -1404,6 +1478,9 @@
                                     <div key={staffId} className="bg-white p-3 rounded-xl border border-gray-100 relative">
                                       <div className="flex justify-between items-start mb-2">
                                         <span className="font-bold text-gray-800 text-sm">{staffName}</span>
+                                        <span className={`text-[10px] px-2 py-1 rounded font-bold ${goalVals.isCompleted ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                          {goalVals.isCompleted ? '達成！' : '未達成'}
+                                        </span>
                                       </div>
                                       
                                       <div className="flex flex-wrap gap-2 mb-3">
@@ -1497,7 +1574,7 @@
                           <input type="text" placeholder="https://script.google.com/macros/s/..." value={newGasUrl} onChange={e=>setNewGasUrl(e.target.value)} className={`w-full bg-white border-0 rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-gray-200`}/>
                           <button onClick={() => { saveSettings({...settings, gasUrl: newGasUrl}); showMsg('連携URLを保存しました'); }} className="bg-gray-900 text-white px-4 py-2 rounded-xl text-xs font-bold active:scale-95 transition-transform">保存</button>
                         </div>
-                        <p className="text-[10px] text-gray-400 px-1 leading-tight mt-1">※設定すると以降の実績はスプレッドシートに保存・参照されます。</p>
+                        <p className="text-[10px] text-gray-400 px-1 leading-tight mt-1">※設定すると、以降の実績データはすべてスプレッドシートに保存されます。（Firebaseの読み込み数を劇的に削減します）</p>
                       </div>
                     </section>
                 
