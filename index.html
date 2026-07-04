@@ -35,7 +35,7 @@
   <script type="text/babel" data-type="module">
     import React, { useState, useEffect, useMemo } from 'react';
     import { createRoot } from 'react-dom/client';
-    import { Edit, PieChart, Settings as SettingsIcon, Plus, Trash2, CheckCircle, AlertCircle, Save, X, MessageSquare, Calendar, User, Clock, BellRing, Square, CheckSquare, ArrowUp, ArrowDown } from 'lucide-react';
+    import { Edit, PieChart, Settings as SettingsIcon, Plus, Trash2, CheckCircle, AlertCircle, Save, X, MessageSquare, Calendar, User, Clock, BellRing, Square, CheckSquare, ArrowUp, ArrowDown, ListTodo } from 'lucide-react';
     
     import { initializeApp } from "firebase/app";
     import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "firebase/auth";
@@ -71,6 +71,7 @@
       const [settings, setSettings] = useState({ shops: [], staffs: [], products: [], otherStats: [] });
       const [records, setRecords] = useState([]);
       const [shares, setShares] = useState([]);
+      const [tasks, setTasks] = useState([]);
 
       const [period, setPeriod] = useState('day');
       const [baseDate, setBaseDate] = useState(getLocalDateString());
@@ -97,6 +98,7 @@
         staffs: [],
         products: [],
         otherStats: [],
+        taskTemplates: [],
         gasUrl: GAS_URL
       };
 
@@ -190,8 +192,50 @@
           setShares(snap.docs.map(d => ({ id: d.id, ...d.data() })));
         });
 
-        return () => { unsubSettings(); unsubShares(); };
+        const tasksRef = collection(db, 'artifacts', appId, 'public', 'data', 'tasks');
+        const unsubTasks = onSnapshot(tasksRef, (snap) => {
+          setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+
+        return () => { unsubSettings(); unsubShares(); unsubTasks(); };
       }, [user, db, appId]);
+
+      useEffect(() => {
+        if (!db || !settings.taskTemplates || settings.taskTemplates.length === 0) return;
+        
+        const timer = setInterval(() => {
+          const now = new Date();
+          const currentTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+          const todayStr = getLocalDateString(now);
+          const currentDayOfWeek = String(now.getDay());
+          const currentDayOfMonth = String(now.getDate());
+
+          settings.taskTemplates.forEach(template => {
+            let shouldGenerate = false;
+            
+            if (template.time && currentTimeStr >= template.time) {
+              if (template.scheduleType === 'daily') shouldGenerate = true;
+              else if (template.scheduleType === 'weekly' && template.scheduleValue === currentDayOfWeek) shouldGenerate = true;
+              else if (template.scheduleType === 'monthly' && template.scheduleValue === currentDayOfMonth) shouldGenerate = true;
+            }
+
+            if (shouldGenerate) {
+              const taskId = `task_${template.id}_${todayStr}`;
+              
+              if (!tasks.some(t => t.id === taskId)) {
+                 setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId), {
+                   title: template.title,
+                   targetShopId: template.targetShopId,
+                   timestamp: Date.now(),
+                   templateId: template.id
+                 }).catch(e => console.error(e));
+              }
+            }
+          });
+        }, 60000);
+
+        return () => clearInterval(timer);
+      }, [db, appId, settings.taskTemplates, tasks]);
 
       useEffect(() => {
         if (!user || !db || !settings) return;
@@ -696,6 +740,37 @@
       const [inputPassword, setInputPassword] = useState('');
       const [newPassword, setNewPassword] = useState('');
       const [newGasUrl, setNewGasUrl] = useState(GAS_URL);
+
+      const [taskTab, setTaskTab] = useState('list');
+      const [newTaskForm, setNewTaskForm] = useState({ title: '', targetShopId: 'all' });
+      const [templateForm, setTemplateForm] = useState({ id: '', title: '', targetShopId: 'all', scheduleType: 'daily', scheduleValue: '1', time: '09:00' });
+
+      const completeTask = async (taskId) => {
+        try {
+          await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId));
+          showMsg('タスクを完了しました');
+        } catch(e) { showMsg('エラーが発生しました', 'error'); }
+      };
+
+      const addSingleTask = async () => {
+        if (!newTaskForm.title) return showMsg('タスク名を入力してください', 'error');
+        try {
+          const taskId = `single_${Date.now()}`;
+          await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId), { title: newTaskForm.title, targetShopId: newTaskForm.targetShopId, timestamp: Date.now() });
+          setNewTaskForm({ title: '', targetShopId: 'all' });
+          showMsg('タスクを追加しました');
+        } catch(e) { showMsg('追加に失敗しました', 'error'); }
+      };
+
+      const saveTemplate = () => {
+        if (!templateForm.title) return showMsg('タスク名を入力してください', 'error');
+        const isNew = !templateForm.id;
+        const newTemplate = { ...templateForm, id: isNew ? Date.now().toString() : templateForm.id };
+        const updatedTemplates = isNew ? [...(settings.taskTemplates || []), newTemplate] : (settings.taskTemplates || []).map(t => t.id === newTemplate.id ? newTemplate : t);
+        saveSettings({ ...settings, taskTemplates: updatedTemplates });
+        setTemplateForm({ id: '', title: '', targetShopId: 'all', scheduleType: 'daily', scheduleValue: '1', time: '09:00' });
+        showMsg(isNew ? 'テンプレートを作成しました' : 'テンプレートを更新しました');
+      };
 
       const [newShop, setNewShop] = useState('');
       const [newStaff, setNewStaff] = useState({ shopId: '', name: '' });
@@ -1716,6 +1791,193 @@
               </div>
             )}
 
+            {/* ======================= 作業リストタブ ======================= */}
+            {tab === 'task' && (
+              <div className="animate-in fade-in space-y-5">
+                <div className="flex justify-between items-end mb-2 ml-1">
+                  <h2 className="font-bold text-2xl text-gray-900 tracking-tight">作業リスト</h2>
+                </div>
+
+                <div className="flex bg-[#f2f2f7] p-1 rounded-xl">
+                  <button onClick={() => setTaskTab('list')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${taskTab === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>本日のタスク</button>
+                  <button onClick={() => setTaskTab('templates')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${taskTab === 'templates' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>テンプレート作成</button>
+                </div>
+
+                {taskTab === 'list' && (
+                  <div className="space-y-6">
+                    <div className="bg-white p-4 rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border border-gray-100/50">
+                      <input 
+                        type="text" placeholder="タスク名" value={newTaskForm.title} 
+                        onChange={e => setNewTaskForm({...newTaskForm, title: e.target.value})}
+                        className={`${inputClass} px-3 py-2.5 text-sm font-semibold outline-none mb-3`}
+                      />
+                      <div className="flex flex-wrap gap-2 mb-3 max-h-32 overflow-y-auto hide-scroll">
+                        <label className="flex items-center space-x-1.5 text-xs bg-[#f2f2f7] px-2.5 py-1.5 rounded-lg border border-gray-200 cursor-pointer active:scale-95 transition-transform">
+                          <input type="checkbox" checked={newTaskForm.isAll} onChange={(e) => setNewTaskForm({...newTaskForm, isAll: e.target.checked})} className="rounded text-amber-500 focus:ring-amber-500 border-gray-300" />
+                          <span className="font-bold text-gray-700">全体</span>
+                        </label>
+                        {(settings.shops || []).map(s => (
+                          <label key={s.id} className="flex items-center space-x-1.5 text-xs bg-[#f2f2f7] px-2.5 py-1.5 rounded-lg border border-gray-200 cursor-pointer active:scale-95 transition-transform">
+                            <input type="checkbox" checked={newTaskForm.shopIds.includes(s.id)} onChange={(e) => {
+                              const newIds = e.target.checked ? [...newTaskForm.shopIds, s.id] : newTaskForm.shopIds.filter(id => id !== s.id);
+                              setNewTaskForm({...newTaskForm, shopIds: newIds});
+                            }} className="rounded text-blue-500 focus:ring-blue-500 border-gray-300" />
+                            <span className="font-bold text-gray-700">{s.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <button onClick={addSingleTask} className="w-full bg-gray-900 text-white font-bold py-2.5 flex items-center justify-center rounded-xl active:scale-95 transition-transform">追加する</button>
+                    </div>
+
+                    <div className="space-y-3">
+                      {[...tasks].sort((a, b) => {
+                        if (a.targetShopId === 'all' && b.targetShopId !== 'all') return -1;
+                        if (a.targetShopId !== 'all' && b.targetShopId === 'all') return 1;
+                        if (a.targetShopId !== b.targetShopId) {
+                          const indexA = (settings.shops || []).findIndex(s => s.id === a.targetShopId);
+                          const indexB = (settings.shops || []).findIndex(s => s.id === b.targetShopId);
+                          const valA = indexA === -1 ? 9999 : indexA;
+                          const valB = indexB === -1 ? 9999 : indexB;
+                          if (valA !== valB) return valA - valB;
+                        }
+                        return b.timestamp - a.timestamp;
+                      }).map(task => {
+                        const shopName = task.targetShopId === 'all' ? '全体' : ((settings.shops || []).find(s => s.id === task.targetShopId)?.name || '不明');
+                        return (
+                          <div key={task.id} className="flex items-center gap-3 bg-white p-4 rounded-2xl shadow-[0_2px_10px_-3px_rgba(0,0,0,0.05)] border border-gray-100">
+                            <button onClick={() => completeTask(task.id)} className="text-gray-300 hover:text-orange-500 transition-colors shrink-0">
+                              <Square size={26} />
+                            </button>
+                            <div className="flex-1 overflow-hidden">
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${task.targetShopId === 'all' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
+                                  {shopName}
+                                </span>
+                              </div>
+                              <div className="font-bold text-gray-800 text-sm truncate">{task.title}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {tasks.length === 0 && (
+                        <div className="text-center py-12">
+                          <CheckCircle size={40} className="mx-auto text-gray-200 mb-3" />
+                          <p className="text-gray-400 text-sm font-bold">残っている作業はありません！</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {taskTab === 'templates' && (
+                  <div className="space-y-6">
+                    <div className="bg-white p-5 rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border border-gray-100/50 space-y-4">
+                      <h3 className="font-bold text-gray-900">{templateForm.id ? 'テンプレートを編集' : '新しいテンプレートを作成'}</h3>
+                      <input 
+                        type="text" placeholder="タスク名" value={templateForm.title} onChange={e => setTemplateForm({...templateForm, title: e.target.value})}
+                        className={`${inputClass} px-3 py-2.5 text-sm font-bold`}
+                      />
+                      
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1.5 ml-1">対象店舗 (複数選択可)</label>
+                        <div className="flex flex-col gap-2 max-h-32 overflow-y-auto bg-[#f2f2f7] p-2 rounded-xl border border-gray-200">
+                          <label className="flex items-center space-x-2 text-sm bg-white p-2 rounded-lg border border-gray-100 cursor-pointer active:scale-95 transition-transform">
+                            <input type="checkbox" checked={templateForm.isAllTarget} onChange={(e) => setTemplateForm({...templateForm, isAllTarget: e.target.checked})} className="rounded text-amber-500 focus:ring-amber-500 border-gray-300" />
+                            <span className="font-bold text-gray-700">全体共通 (1つのタスクとして発行)</span>
+                          </label>
+                          {(settings.shops || []).map(s => (
+                            <label key={s.id} className="flex items-center space-x-2 text-sm bg-white p-2 rounded-lg border border-gray-100 cursor-pointer active:scale-95 transition-transform">
+                              <input type="checkbox" checked={templateForm.targetShopIds.includes(s.id)} onChange={(e) => {
+                                const newIds = e.target.checked ? [...templateForm.targetShopIds, s.id] : templateForm.targetShopIds.filter(id => id !== s.id);
+                                setTemplateForm({...templateForm, targetShopIds: newIds});
+                              }} className="rounded text-blue-500 focus:ring-blue-500 border-gray-300" />
+                              <span className="font-bold text-gray-700">{s.name} (個別発行)</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 mt-2">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 mb-1.5 ml-1">発生タイミング</label>
+                          <select value={templateForm.scheduleType} onChange={e => setTemplateForm({...templateForm, scheduleType: e.target.value})} className={`${inputClass} px-3 py-2.5 text-sm`}>
+                            <option value="daily">毎日</option><option value="weekly">毎週</option><option value="monthly">毎月</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 mb-1.5 ml-1">発生時間</label>
+                          <input type="time" value={templateForm.time} onChange={e => setTemplateForm({...templateForm, time: e.target.value})} className={`${inputClass} px-3 py-2.5 text-sm`} />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        {templateForm.scheduleType === 'weekly' && (
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1.5 ml-1">曜日</label>
+                            <select value={templateForm.scheduleValue} onChange={e => setTemplateForm({...templateForm, scheduleValue: e.target.value})} className={`${inputClass} px-3 py-2.5 text-sm`}>
+                              <option value="0">日曜日</option><option value="1">月曜日</option><option value="2">火曜日</option>
+                              <option value="3">水曜日</option><option value="4">木曜日</option><option value="5">金曜日</option><option value="6">土曜日</option>
+                            </select>
+                          </div>
+                        )}
+                        {templateForm.scheduleType === 'monthly' && (
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1.5 ml-1">日にち</label>
+                            <select value={templateForm.scheduleValue} onChange={e => setTemplateForm({...templateForm, scheduleValue: e.target.value})} className={`${inputClass} px-3 py-2.5 text-sm`}>
+                              {[...Array(31)].map((_, i) => <option key={i+1} value={String(i+1)}>{i+1}日</option>)}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex gap-3 pt-2">
+                        {templateForm.id && (
+                          <button onClick={() => setTemplateForm({ id: '', title: '', isAllTarget: true, targetShopIds: [], scheduleType: 'daily', scheduleValue: '1', time: '09:00' })} className="w-1/3 bg-gray-200 text-gray-700 font-bold p-3.5 rounded-2xl active:bg-gray-300">取消</button>
+                        )}
+                        <button onClick={saveTemplate} className={`${templateForm.id ? 'w-2/3' : 'w-full'} ${btnClass}`}>{templateForm.id ? '更新する' : 'テンプレートを保存'}</button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-bold text-gray-500 ml-1">登録済みのテンプレート</h3>
+                      {(settings.taskTemplates || []).map(t => {
+                        const isAll = t.isAllTarget !== undefined ? t.isAllTarget : (t.targetShopId === 'all');
+                        const shopIds = t.targetShopIds || (t.targetShopId && t.targetShopId !== 'all' ? [t.targetShopId] : []);
+                        
+                        let shopNames = [];
+                        if (isAll) shopNames.push('全体');
+                        shopIds.forEach(id => {
+                          const s = (settings.shops || []).find(sh => sh.id === id);
+                          if (s) shopNames.push(s.name);
+                        });
+
+                        let scheduleText = '';
+                        if (t.scheduleType === 'daily') scheduleText = `毎日 ${t.time}`;
+                        if (t.scheduleType === 'weekly') scheduleText = `毎週 ${['日','月','火','水','木','金','土'][t.scheduleValue]}曜日 ${t.time}`;
+                        if (t.scheduleType === 'monthly') scheduleText = `毎月 ${t.scheduleValue}日 ${t.time}`;
+
+                        return (
+                          <div key={t.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center">
+                            <div className="overflow-hidden pr-2">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-600 rounded font-bold truncate max-w-[120px] inline-block">{shopNames.join(', ') || '未設定'}</span>
+                                <span className="text-[10px] font-bold text-amber-600 shrink-0">{scheduleText}</span>
+                              </div>
+                              <div className="font-bold text-gray-800 text-sm truncate">{t.title}</div>
+                            </div>
+                            <div className="flex gap-2 shrink-0">
+                              <button onClick={() => editTemplate(t)} className="p-2 text-gray-400 hover:text-gray-800"><Edit size={16}/></button>
+                              <button onClick={() => removeSetting('taskTemplates', t.id)} className="p-2 text-gray-400 hover:text-red-500"><Trash2 size={16}/></button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* ======================= 設定タブ ======================= */}
             {tab === 'settings' && (
               <div className="animate-in fade-in space-y-6">
@@ -1997,6 +2259,7 @@
             <div className="max-w-md mx-auto flex justify-between px-2 pb-1">
               {[
                 { id: 'record', icon: Edit, label: '登録' },
+                { id: 'task', icon: ListTodo, label: '作業', badge: tasks.length > 0 },
                 { id: 'analytics', icon: PieChart, label: 'データ' },
                 { id: 'share', icon: MessageSquare, label: '共有', badge: urgentShares.length > 0 },
                 { id: 'settings', icon: SettingsIcon, label: '設定' }
