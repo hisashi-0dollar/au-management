@@ -574,7 +574,7 @@
         try {
           const newGoals = { ...currentGoals };
           newGoals[staffId] = { ...newGoals[staffId], isCompleted: !newGoals[staffId].isCompleted };
-          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', shareId), { goals: newGoals });
+          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', shareId), { goals: newGoals, timestamp: Date.now() });
         } catch (e) { showMsg('更新失敗', 'error'); }
       };
 
@@ -632,7 +632,7 @@
         const completed = share.completedStaffIds || [];
         const isCompleted = completed.includes(staffId);
         const newCompleted = isCompleted ? completed.filter(id => id !== staffId) : [...completed, staffId];
-        try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', share.id), { completedStaffIds: newCompleted }); } 
+        try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', share.id), { completedStaffIds: newCompleted, timestamp: Date.now() }); } 
         catch (err) { showMsg('更新に失敗しました', 'error'); }
       };
 
@@ -640,7 +640,7 @@
         const completed = share.completedShopIds || [];
         const isCompleted = completed.includes(shopId);
         const newCompleted = isCompleted ? completed.filter(id => id !== shopId) : [...completed, shopId];
-        try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', share.id), { completedShopIds: newCompleted }); } 
+        try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', share.id), { completedShopIds: newCompleted, timestamp: Date.now() }); } 
         catch (err) { showMsg('更新に失敗しました', 'error'); }
       };
 
@@ -650,11 +650,57 @@
         if (!share) return;
         try {
           const newRequests = { ...(share.shiftRequests || {}), [shiftInput.staffId]: shiftInput.dates };
-          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', shareId), { shiftRequests: newRequests });
+          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', shareId), { shiftRequests: newRequests, timestamp: Date.now() });
           showMsg('希望休を提出しました');
           setShiftInput({ shareId: '', staffId: '', dates: '' });
         } catch (err) { showMsg('提出に失敗しました', 'error'); }
       };
+
+      // --- 追加: 完了して7日経過した共有の自動削除機能 ---
+      useEffect(() => {
+        if (!db || shares.length === 0) return;
+        const now = Date.now();
+        const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+
+        shares.forEach(share => {
+          let isCompleted = false;
+
+          if (share.type === 'task') {
+            const tStaffs = share.targetStaffIds || [];
+            const cStaffs = share.completedStaffIds || [];
+            const tShops = share.targetShopIds || [];
+            const cShops = share.completedShopIds || [];
+            
+            const staffCompleted = tStaffs.length === 0 || tStaffs.every(id => cStaffs.includes(id));
+            const shopCompleted = tShops.length === 0 || tShops.every(id => cShops.includes(id));
+            
+            // ターゲットが1つ以上設定されていて、それがすべて完了しているか
+            if ((tStaffs.length > 0 || tShops.length > 0) && staffCompleted && shopCompleted) {
+              isCompleted = true;
+            }
+          } else if (share.type === 'shift') {
+            const submittedCount = Object.keys(share.shiftRequests || {}).length;
+            const targetStaffCount = (settings.staffs || []).filter(st => share.targetShopId === 'all' || st.shopId === share.targetShopId).length;
+            // 対象者全員が提出しているか
+            if (targetStaffCount > 0 && submittedCount >= targetStaffCount) {
+              isCompleted = true;
+            }
+          } else if (share.type === 'goal') {
+            const goals = share.goals || {};
+            const completedCount = Object.values(goals).filter(g => g.isCompleted).length;
+            const targetStaffCount = (settings.staffs || []).filter(st => share.targetShopId === 'all' || st.shopId === share.targetShopId).length;
+            // 対象者全員が達成しているか
+            if (targetStaffCount > 0 && completedCount >= targetStaffCount) {
+              isCompleted = true;
+            }
+          }
+
+          // 完了状態 かつ 最後の操作(完了ボタン等)から7日間が経過していれば自動削除
+          if (isCompleted && (now - share.timestamp > SEVEN_DAYS)) {
+            deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', share.id)).catch(e => console.log('Auto delete skipped', e));
+          }
+        });
+      }, [shares, settings.staffs, db, appId]);
 
       const [isAuthenticatedSettings, setIsAuthenticatedSettings] = useState(false);
       const [inputPassword, setInputPassword] = useState('');
