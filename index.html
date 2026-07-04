@@ -150,7 +150,6 @@
         const url = settings.gasUrl || GAS_URL;
         if (!url) return;
         try {
-          // 修正: GETリクエストのオプションをシンプルにし、通信を安定化
           const res = await fetch(`${url}?action=getRecords&since=${since}`);
           if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
           const data = await res.json();
@@ -258,9 +257,11 @@
 
           const url = settings.gasUrl || GAS_URL;
           if (url) {
-            // 修正: POSTリクエストもシンプル化
             const res = await fetch(url, { 
               method: 'POST', 
+              mode: 'cors',
+              redirect: 'follow',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({ action: 'addRecords', records: newRecords }) 
             });
             if(!res.ok) throw new Error("Network response was not ok");
@@ -300,9 +301,11 @@
 
           const url = settings.gasUrl || GAS_URL;
           if (url) {
-            // 修正: POSTリクエストもシンプル化
             const res = await fetch(url, { 
               method: 'POST', 
+              mode: 'cors',
+              redirect: 'follow',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({ action: 'addRecords', records: newRecords }) 
             });
             if(!res.ok) throw new Error("Network response was not ok");
@@ -364,19 +367,19 @@
       }, [settings.products, settings.otherStats, settings.staffs, currentWeekRecords]);
 
       const urgentShares = useMemo(() => {
-        const today = new Date().toISOString().split('T')[0];
+        const today = getLocalDateString();
         return shares.filter(s => {
           if (s.deadline && s.deadline < today) return false;
           if (s.type === 'task') {
-            const targetStaffs = s.targetStaffIds || [];
-            const completedStaffs = s.completedStaffIds || [];
-            const targetShops = s.targetShopIds || [];
-            const completedShops = s.completedShopIds || [];
+            const tStaffs = s.targetStaffIds || [];
+            const cStaffs = s.completedStaffIds || [];
+            const tShops = s.targetShopIds || [];
+            const cShops = s.completedShopIds || [];
             
-            const hasUncompletedStaffs = targetStaffs.length > 0 && completedStaffs.length < targetStaffs.length;
-            const hasUncompletedShops = targetShops.length > 0 && completedShops.length < targetShops.length;
+            const isStaffPending = tStaffs.length > 0 && cStaffs.length < tStaffs.length;
+            const isShopPending = tShops.length > 0 && cShops.length < tShops.length;
             
-            return hasUncompletedStaffs || hasUncompletedShops;
+            return isStaffPending || isShopPending;
           } else if (s.type === 'shift') {
             const submitted = Object.keys(s.shiftRequests || {});
             const staffCount = (settings.staffs || []).filter(st => s.targetShopId === 'all' || st.shopId === s.targetShopId).length;
@@ -502,9 +505,11 @@
         try { 
           const url = settings.gasUrl || GAS_URL;
           if (url) {
-            // 修正: POSTリクエストもシンプル化
             const res = await fetch(url, { 
               method: 'POST', 
+              mode: 'cors',
+              redirect: 'follow',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({ action: 'deleteRecord', id: id }) 
             });
             if(!res.ok) throw new Error("Network response was not ok");
@@ -523,10 +528,9 @@
       const [editingShareId, setEditingShareId] = useState(null);
       
       const [shareForm, setShareForm] = useState({
-        type: 'task', targetShopId: 'all', creatorStaffId: '', title: '', content: '', deadline: '', targetStaffIds: [], targetShopIds: [], goals: {}, targetMonth: new Date().toISOString().substring(0, 7)
+        type: 'task', targetShopId: 'all', creatorStaffId: '', title: '', content: '', deadline: '', targetStaffIds: [], targetShopIds: [], goals: {}, targetMonth: getLocalMonthString()
       });
       const [shiftInput, setShiftInput] = useState({ shareId: '', staffId: '', dates: '' });
-      const [goalProgressInput, setGoalProgressInput] = useState({ shareId: '', staffId: '', text: '' });
       
       const [goalForms, setGoalForms] = useState({});
 
@@ -553,21 +557,11 @@
 
         try {
           const newGoals = { ...(share.goals || {}) };
-          newGoals[form.staffId] = form.values;
-          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', shareId), { goals: newGoals });
+          newGoals[form.staffId] = { ...form.values, isCompleted: newGoals[form.staffId]?.isCompleted || false };
+          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', shareId), { goals: newGoals, timestamp: Date.now() });
           showMsg('個人目標を提出しました');
           setGoalForms(prev => ({ ...prev, [shareId]: { staffId: '', values: {} } }));
         } catch(e) { showMsg('提出失敗', 'error'); }
-      };
-
-      const updateGoalProgress = async (shareId, staffId, currentGoals) => {
-        if (goalProgressInput.shareId !== shareId || goalProgressInput.staffId !== staffId) return;
-        try {
-          const newGoals = { ...currentGoals };
-          newGoals[staffId] = { ...newGoals[staffId], progressText: goalProgressInput.text };
-          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', shareId), { goals: newGoals });
-          showMsg('進捗メモを更新しました');
-        } catch (e) { showMsg('更新失敗', 'error'); }
       };
 
       const toggleGoalCompletion = async (shareId, staffId, currentGoals) => {
@@ -581,12 +575,12 @@
       const resetShareForm = () => {
         setIsCreatingShare(false);
         setEditingShareId(null);
-        setShareForm({ type: 'task', targetShopId: 'all', creatorStaffId: '', title: '', content: '', deadline: '', targetStaffIds: [], targetShopIds: [], goals: {}, targetMonth: new Date().toISOString().substring(0, 7) });
+        setShareForm({ type: 'task', targetShopId: 'all', creatorStaffId: '', title: '', content: '', deadline: '', targetStaffIds: [], targetShopIds: [], goals: {}, targetMonth: getLocalMonthString() });
       };
 
       const submitShare = async () => {
         if (!shareForm.creatorStaffId || !shareForm.title) return showMsg('作成者とタイトルは必須です', 'error');
-        if (shareForm.type === 'task' && shareForm.targetStaffIds.length === 0 && shareForm.targetShopIds.length === 0) return showMsg('対象の店舗またはスタッフを選択してください', 'error');
+        if (shareForm.type === 'task' && shareForm.targetStaffIds.length === 0 && shareForm.targetShopIds.length === 0) return showMsg('対象のスタッフまたは店舗を選択してください', 'error');
         
         try {
           if (editingShareId) {
@@ -616,7 +610,7 @@
           targetStaffIds: share.targetStaffIds || [],
           targetShopIds: share.targetShopIds || [],
           goals: share.goals || {},
-          targetMonth: share.targetMonth || new Date().toISOString().substring(0, 7)
+          targetMonth: share.targetMonth || getLocalMonthString()
         });
         setEditingShareId(share.id);
         setIsCreatingShare(true);
@@ -656,7 +650,7 @@
         } catch (err) { showMsg('提出に失敗しました', 'error'); }
       };
 
-      // --- 追加: 完了して7日経過した共有の自動削除機能 ---
+      // 完了して7日経過した共有の自動削除
       useEffect(() => {
         if (!db || shares.length === 0) return;
         const now = Date.now();
@@ -674,14 +668,12 @@
             const staffCompleted = tStaffs.length === 0 || tStaffs.every(id => cStaffs.includes(id));
             const shopCompleted = tShops.length === 0 || tShops.every(id => cShops.includes(id));
             
-            // ターゲットが1つ以上設定されていて、それがすべて完了しているか
             if ((tStaffs.length > 0 || tShops.length > 0) && staffCompleted && shopCompleted) {
               isCompleted = true;
             }
           } else if (share.type === 'shift') {
             const submittedCount = Object.keys(share.shiftRequests || {}).length;
             const targetStaffCount = (settings.staffs || []).filter(st => share.targetShopId === 'all' || st.shopId === share.targetShopId).length;
-            // 対象者全員が提出しているか
             if (targetStaffCount > 0 && submittedCount >= targetStaffCount) {
               isCompleted = true;
             }
@@ -689,13 +681,11 @@
             const goals = share.goals || {};
             const completedCount = Object.values(goals).filter(g => g.isCompleted).length;
             const targetStaffCount = (settings.staffs || []).filter(st => share.targetShopId === 'all' || st.shopId === share.targetShopId).length;
-            // 対象者全員が達成しているか
             if (targetStaffCount > 0 && completedCount >= targetStaffCount) {
               isCompleted = true;
             }
           }
 
-          // 完了状態 かつ 最後の操作(完了ボタン等)から7日間が経過していれば自動削除
           if (isCompleted && (now - share.timestamp > SEVEN_DAYS)) {
             deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', share.id)).catch(e => console.log('Auto delete skipped', e));
           }
@@ -731,36 +721,40 @@
       const addProduct = () => {
         if (newProduct.name && newProduct.itemsStr) {
           const items = newProduct.itemsStr.split(',').map(s => s.trim()).filter(s => s);
-          saveSettings({ ...settings, products: [...(settings.products || []), { id: Date.now().toString(), category: newProduct.category || '未分類', name: newProduct.name, rankingItem: items[0], goalItem: items[0], items }] });
+          saveSettings({ ...settings, products: [...(settings.products || []), { id: Date.now().toString(), category: newProduct.category || '未分類', name: newProduct.name, rankingItem: items[0], goalItems: [], items }] });
           setNewProduct({ category: '', name: '', itemsStr: '' });
         }
       };
       const saveEditedProduct = () => {
         if (editingProduct.name && editingProduct.itemsStr) {
           const items = editingProduct.itemsStr.split(',').map(s => s.trim()).filter(s => s);
-          const updated = (settings.products || []).map(p => p.id === editingProduct.id ? { 
-            ...p, category: editingProduct.category || '未分類', name: editingProduct.name, items, 
-            rankingItem: items.includes(p.rankingItem) ? p.rankingItem : (items[0] || ''),
-            goalItem: items.includes(p.goalItem) ? p.goalItem : (items[0] || '')
-          } : p);
+          const updated = (settings.products || []).map(p => {
+            if (p.id === editingProduct.id) {
+               const gItems = Array.isArray(p.goalItems) ? p.goalItems.filter(i => items.includes(i)) : (p.goalItem && items.includes(p.goalItem) ? [p.goalItem] : []);
+               return { ...p, category: editingProduct.category || '未分類', name: editingProduct.name, items, rankingItem: items.includes(p.rankingItem) ? p.rankingItem : (items[0] || ''), goalItems: gItems, goalItem: null };
+            }
+            return p;
+          });
           saveSettings({ ...settings, products: updated }); setEditingProduct(null);
         }
       };
       const addOtherStat = () => {
         if (newOtherStat.mainCategory && newOtherStat.subCategory && newOtherStat.itemsStr) {
           const items = newOtherStat.itemsStr.split(',').map(s => s.trim()).filter(s => s);
-          saveSettings({ ...settings, otherStats: [...(settings.otherStats||[]), { id: Date.now().toString(), mainCategory: newOtherStat.mainCategory, subCategory: newOtherStat.subCategory, rankingItem: items[0], goalItem: items[0], items }] });
+          saveSettings({ ...settings, otherStats: [...(settings.otherStats||[]), { id: Date.now().toString(), mainCategory: newOtherStat.mainCategory, subCategory: newOtherStat.subCategory, rankingItem: items[0], goalItems: [], items }] });
           setNewOtherStat({ mainCategory: '', subCategory: '', itemsStr: '' });
         }
       };
       const saveEditedOtherStat = () => {
         if (editingOtherStat.mainCategory && editingOtherStat.subCategory && editingOtherStat.itemsStr) {
           const items = editingOtherStat.itemsStr.split(',').map(s => s.trim()).filter(s => s);
-          const updated = (settings.otherStats||[]).map(os => os.id === editingOtherStat.id ? { 
-            ...os, mainCategory: editingOtherStat.mainCategory, subCategory: editingOtherStat.subCategory, items, 
-            rankingItem: items.includes(os.rankingItem) ? os.rankingItem : (items[0] || ''),
-            goalItem: items.includes(os.goalItem) ? os.goalItem : (items[0] || '')
-          } : os);
+          const updated = (settings.otherStats||[]).map(os => {
+            if (os.id === editingOtherStat.id) {
+               const gItems = Array.isArray(os.goalItems) ? os.goalItems.filter(i => items.includes(i)) : (os.goalItem && items.includes(os.goalItem) ? [os.goalItem] : []);
+               return { ...os, mainCategory: editingOtherStat.mainCategory, subCategory: editingOtherStat.subCategory, items, rankingItem: items.includes(os.rankingItem) ? os.rankingItem : (items[0] || ''), goalItems: gItems, goalItem: null };
+            }
+            return os;
+          });
           saveSettings({ ...settings, otherStats: updated }); setEditingOtherStat(null);
         }
       };
@@ -769,8 +763,29 @@
       const updateRankingItem = (productId, rankingItem) => saveSettings({ ...settings, products: (settings.products || []).map(p => p.id === productId ? { ...p, rankingItem } : p) });
       const updateOtherStatRankingItem = (osId, rankingItem) => saveSettings({ ...settings, otherStats: (settings.otherStats||[]).map(os => os.id === osId ? { ...os, rankingItem } : os) });
       
-      const updateGoalItem = (productId, goalItem) => saveSettings({ ...settings, products: (settings.products || []).map(p => p.id === productId ? { ...p, goalItem } : p) });
-      const updateOtherStatGoalItem = (osId, goalItem) => saveSettings({ ...settings, otherStats: (settings.otherStats||[]).map(os => os.id === osId ? { ...os, goalItem } : os) });
+      const toggleGoalItem = (productId, item) => {
+        const updated = (settings.products || []).map(p => {
+          if (p.id === productId) {
+            const current = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
+            const newItems = current.includes(item) ? current.filter(i => i !== item) : [...current, item];
+            return { ...p, goalItems: newItems, goalItem: null };
+          }
+          return p;
+        });
+        saveSettings({ ...settings, products: updated });
+      };
+
+      const toggleOtherStatGoalItem = (osId, item) => {
+        const updated = (settings.otherStats || []).map(os => {
+          if (os.id === osId) {
+            const current = Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : []);
+            const newItems = current.includes(item) ? current.filter(i => i !== item) : [...current, item];
+            return { ...os, goalItems: newItems, goalItem: null };
+          }
+          return os;
+        });
+        saveSettings({ ...settings, otherStats: updated });
+      };
 
       const moveItem = (key, index, direction) => {
         const newArray = [...(settings[key] || [])];
@@ -1073,8 +1088,14 @@
                               const staffName = (settings.staffs || []).find(s => s.id === staffId)?.name || '不明';
                               const monthRecords = records.filter(r => r.date.startsWith(share.targetMonth) && r.staffId === staffId);
                               
-                              const targetProducts = (settings.products || []).filter(p => p.goalItem && goalVals['p_' + p.id]);
-                              const targetOtherStats = (settings.otherStats || []).filter(os => os.goalItem && goalVals['o_' + os.id]);
+                              const targetProducts = (settings.products || []).filter(p => {
+                                const g = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
+                                return g.length > 0 && goalVals['p_' + p.id];
+                              });
+                              const targetOtherStats = (settings.otherStats || []).filter(os => {
+                                const g = Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : []);
+                                return g.length > 0 && goalVals['o_' + os.id];
+                              });
 
                               if (targetProducts.length === 0 && targetOtherStats.length === 0) return null;
 
@@ -1092,14 +1113,24 @@
                                   <div className="space-y-3">
                                     {targetProducts.map(p => {
                                       const target = goalVals['p_' + p.id];
-                                      const current = monthRecords.filter(r => r.productId === p.id && (r.itemIds?.includes(p.goalItem) || r.itemId === p.goalItem)).length;
-                                      const percent = Math.min(100, Math.round((current / target) * 100));
+                                      const gItems = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
+                                      
+                                      let current = 0;
+                                      monthRecords.filter(r => r.productId === p.id).forEach(r => {
+                                        if (r.itemIds) {
+                                          r.itemIds.forEach(id => { if (gItems.includes(id)) current++; });
+                                        } else if (gItems.includes(r.itemId)) {
+                                          current++;
+                                        }
+                                      });
+
+                                      const percent = Math.min(100, target > 0 ? Math.round((current / target) * 100) : 0);
                                       const isCompleted = current >= target;
                                       
                                       return (
                                         <div key={p.id}>
                                           <div className="flex justify-between text-xs text-gray-600 mb-1 font-medium">
-                                            <span className="truncate pr-2">{p.name} <span className="text-amber-500 font-bold ml-0.5">({p.goalItem})</span></span>
+                                            <span className="truncate pr-2">{p.name} <span className="text-amber-500 font-bold ml-0.5">({gItems.join(', ')})</span></span>
                                             <span className="whitespace-nowrap"><span className="text-gray-900 font-bold text-sm">{current}</span> / {target} 件</span>
                                           </div>
                                           <div className="h-2 bg-[#f2f2f7] rounded-full overflow-hidden border border-gray-200/50">
@@ -1110,17 +1141,24 @@
                                     })}
                                     {targetOtherStats.map(os => {
                                       const target = goalVals['o_' + os.id];
+                                      const gItems = Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : []);
+                                      
                                       let current = 0;
                                       monthRecords.filter(r => r.otherStatId === os.id).forEach(r => {
-                                        if (r.counts && r.counts[os.goalItem]) current += r.counts[os.goalItem];
+                                        if (r.counts) {
+                                          gItems.forEach(gItem => {
+                                            if (r.counts[gItem]) current += r.counts[gItem];
+                                          });
+                                        }
                                       });
-                                      const percent = Math.min(100, Math.round((current / target) * 100));
+
+                                      const percent = Math.min(100, target > 0 ? Math.round((current / target) * 100) : 0);
                                       const isCompleted = current >= target;
                                       
                                       return (
                                         <div key={os.id}>
                                           <div className="flex justify-between text-xs text-gray-600 mb-1 font-medium">
-                                            <span className="truncate pr-2">{os.subCategory} <span className="text-amber-500 font-bold ml-0.5">({os.goalItem})</span></span>
+                                            <span className="truncate pr-2">{os.subCategory} <span className="text-amber-500 font-bold ml-0.5">({gItems.join(', ')})</span></span>
                                             <span className="whitespace-nowrap"><span className="text-gray-900 font-bold text-sm">{current}</span> / {target} 件</span>
                                           </div>
                                           <div className="h-2 bg-[#f2f2f7] rounded-full overflow-hidden border border-gray-200/50">
@@ -1130,11 +1168,6 @@
                                       );
                                     })}
                                   </div>
-                                  {goalVals.progressText && (
-                                    <div className="mt-3 bg-white p-2 rounded-lg text-xs text-gray-600 border border-gray-100">
-                                      <span className="text-gray-400 font-bold mr-1">メモ:</span>{goalVals.progressText}
-                                    </div>
-                                  )}
                                 </div>
                               );
                             })}
@@ -1401,67 +1434,34 @@
                     )}
 
                     {shareForm.type === 'task' && (
-                      <div className="bg-[#f2f2f7] p-4 rounded-2xl space-y-4">
-                        <div>
-                          <div className="flex justify-between items-center mb-3">
-                            <span className="text-xs font-bold text-gray-700">対象店舗 (店舗ごとのタスク)</span>
-                            <button 
-                              onClick={() => {
-                                const targets = (settings.shops || []).map(s=>s.id);
-                                setShareForm({...shareForm, targetShopIds: (shareForm.targetShopIds || []).length === targets.length ? [] : targets});
-                              }} 
-                              className="text-[10px] bg-white px-2 py-1 rounded shadow-sm font-bold text-gray-600 active:bg-gray-100"
-                            >
-                              全員選択
-                            </button>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto hide-scroll">
-                            {(settings.shops || []).map(s => (
-                              <label key={s.id} className="flex items-center space-x-2 text-sm bg-white p-2 rounded-xl">
-                                <input 
-                                  type="checkbox" 
-                                  checked={(shareForm.targetShopIds || []).includes(s.id)} 
-                                  onChange={(e) => {
-                                    const newIds = e.target.checked ? [...(shareForm.targetShopIds || []), s.id] : (shareForm.targetShopIds || []).filter(id=>id!==s.id);
-                                    setShareForm({...shareForm, targetShopIds: newIds});
-                                  }}
-                                  className="rounded text-gray-900 focus:ring-gray-900 border-gray-300"
-                                />
-                                <span className="text-gray-700 font-medium truncate">{s.name}</span>
-                              </label>
-                            ))}
-                          </div>
+                      <div className="bg-[#f2f2f7] p-4 rounded-2xl">
+                        <div className="flex justify-between items-center mb-3">
+                          <span className="text-xs font-bold text-gray-700">対象スタッフ</span>
+                          <button 
+                            onClick={() => {
+                              const targets = (settings.staffs || []).filter(s => shareForm.targetShopId === 'all' || s.shopId === shareForm.targetShopId).map(s=>s.id);
+                              setShareForm({...shareForm, targetStaffIds: shareForm.targetStaffIds.length === targets.length ? [] : targets});
+                            }} 
+                            className="text-[10px] bg-white px-2 py-1 rounded shadow-sm font-bold text-gray-600 active:bg-gray-100"
+                          >
+                            全員選択
+                          </button>
                         </div>
-                        
-                        <div className="border-t border-gray-200/60 pt-4">
-                          <div className="flex justify-between items-center mb-3">
-                            <span className="text-xs font-bold text-gray-700">対象スタッフ (個人ごとのタスク)</span>
-                            <button 
-                              onClick={() => {
-                                const targets = (settings.staffs || []).filter(s => shareForm.targetShopId === 'all' || s.shopId === shareForm.targetShopId).map(s=>s.id);
-                                setShareForm({...shareForm, targetStaffIds: (shareForm.targetStaffIds || []).length === targets.length ? [] : targets});
-                              }} 
-                              className="text-[10px] bg-white px-2 py-1 rounded shadow-sm font-bold text-gray-600 active:bg-gray-100"
-                            >
-                              全員選択
-                            </button>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto hide-scroll">
-                            {(settings.staffs || []).filter(s => shareForm.targetShopId === 'all' || s.shopId === shareForm.targetShopId).map(s => (
-                              <label key={s.id} className="flex items-center space-x-2 text-sm bg-white p-2 rounded-xl">
-                                <input 
-                                  type="checkbox" 
-                                  checked={(shareForm.targetStaffIds || []).includes(s.id)} 
-                                  onChange={(e) => {
-                                    const newIds = e.target.checked ? [...(shareForm.targetStaffIds || []), s.id] : (shareForm.targetStaffIds || []).filter(id=>id!==s.id);
-                                    setShareForm({...shareForm, targetStaffIds: newIds});
-                                  }}
-                                  className="rounded text-gray-900 focus:ring-gray-900 border-gray-300"
-                                />
-                                <span className="text-gray-700 font-medium truncate">{s.name}</span>
-                              </label>
-                            ))}
-                          </div>
+                        <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto hide-scroll">
+                          {(settings.staffs || []).filter(s => shareForm.targetShopId === 'all' || s.shopId === shareForm.targetShopId).map(s => (
+                            <label key={s.id} className="flex items-center space-x-2 text-sm bg-white p-2 rounded-xl">
+                              <input 
+                                type="checkbox" 
+                                checked={shareForm.targetStaffIds.includes(s.id)} 
+                                onChange={(e) => {
+                                  const newIds = e.target.checked ? [...shareForm.targetStaffIds, s.id] : shareForm.targetStaffIds.filter(id=>id!==s.id);
+                                  setShareForm({...shareForm, targetStaffIds: newIds});
+                                }}
+                                className="rounded text-gray-900 focus:ring-gray-900 border-gray-300"
+                              />
+                              <span className="text-gray-700 font-medium truncate">{s.name}</span>
+                            </label>
+                          ))}
                         </div>
                       </div>
                     )}
@@ -1535,50 +1535,24 @@
 
                         {/* タスクの場合のUI */}
                         {isTask && (
-                          <div className="bg-[#f2f2f7] p-4 rounded-2xl mt-4 space-y-4">
-                            {share.targetShopIds && share.targetShopIds.length > 0 && (
-                              <div>
-                                <p className="text-xs font-bold text-gray-500 mb-3">対象店舗の完了状況</p>
-                                <div className="flex flex-wrap gap-2">
-                                  {share.targetShopIds.map(shopId => {
-                                    const shopName = (settings.shops || []).find(s => s.id === shopId)?.name || '不明';
-                                    const isCompleted = share.completedShopIds?.includes(shopId);
-                                    return (
-                                      <button 
-                                        key={shopId} 
-                                        onClick={() => toggleShopTaskCompletion(share, shopId)}
-                                        className={`flex items-center px-3 py-1.5 rounded-xl text-sm font-semibold transition-all active:scale-95 ${isCompleted ? 'bg-amber-500 text-white shadow-sm border-transparent' : 'bg-white text-gray-600 border border-gray-200'}`}
-                                      >
-                                        {isCompleted ? <CheckSquare size={14} className="mr-1.5 opacity-90" /> : <Square size={14} className="mr-1.5 opacity-50" />}
-                                        {shopName}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            )}
-                            
-                            {share.targetStaffIds && share.targetStaffIds.length > 0 && (
-                              <div className={share.targetShopIds && share.targetShopIds.length > 0 ? "pt-4 border-t border-gray-200/60" : ""}>
-                                <p className="text-xs font-bold text-gray-500 mb-3">対象スタッフの完了状況</p>
-                                <div className="flex flex-wrap gap-2">
-                                  {share.targetStaffIds.map(staffId => {
-                                    const staffName = (settings.staffs || []).find(s => s.id === staffId)?.name || '不明';
-                                    const isCompleted = share.completedStaffIds?.includes(staffId);
-                                    return (
-                                      <button 
-                                        key={staffId} 
-                                        onClick={() => toggleTaskCompletion(share, staffId)}
-                                        className={`flex items-center px-3 py-1.5 rounded-xl text-sm font-semibold transition-all active:scale-95 ${isCompleted ? 'bg-gray-900 text-white shadow-md border-transparent' : 'bg-white text-gray-600 border border-gray-200'}`}
-                                      >
-                                        {isCompleted ? <CheckSquare size={14} className="mr-1.5 opacity-80" /> : <Square size={14} className="mr-1.5 opacity-50" />}
-                                        {staffName}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            )}
+                          <div className="bg-[#f2f2f7] p-4 rounded-2xl mt-4">
+                            <p className="text-xs font-bold text-gray-500 mb-3">対象スタッフの完了状況</p>
+                            <div className="flex flex-wrap gap-2">
+                              {share.targetStaffIds?.map(staffId => {
+                                const staffName = (settings.staffs || []).find(s => s.id === staffId)?.name || '不明';
+                                const isCompleted = share.completedStaffIds?.includes(staffId);
+                                return (
+                                  <button 
+                                    key={staffId} 
+                                    onClick={() => toggleTaskCompletion(share, staffId)}
+                                    className={`flex items-center px-3 py-1.5 rounded-xl text-sm font-semibold transition-all active:scale-95 ${isCompleted ? 'bg-gray-900 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200'}`}
+                                  >
+                                    {isCompleted ? <CheckSquare size={14} className="mr-1.5 opacity-80" /> : <Square size={14} className="mr-1.5 opacity-50" />}
+                                    {staffName}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
                         )}
 
@@ -1617,7 +1591,7 @@
                           </div>
                         )}
 
-                        {/* 個人目標の場合のUI (入力とメモのみ) */}
+                        {/* 個人目標の場合のUI (入力枠のみ・メモは削除) */}
                         {isGoal && (
                           <div className="bg-[#f2f2f7] p-4 rounded-2xl mt-4 space-y-4">
                             <div className="flex justify-between items-center border-b border-gray-200 pb-2">
@@ -1639,48 +1613,61 @@
                               </select>
                               
                               <div className="grid grid-cols-2 gap-2 mb-3 max-h-48 overflow-y-auto hide-scroll">
-                                {(settings.products || []).filter(p => p.goalItem).map(p => (
-                                  <div key={p.id} className="flex flex-col bg-[#f2f2f7] p-2 rounded-lg">
-                                    <span className="text-[10px] font-bold text-gray-700 truncate">{p.name} <span className="text-amber-500">({p.goalItem})</span></span>
-                                    <div className="flex items-center mt-1">
-                                      <input 
-                                        type="number" 
-                                        min="0"
-                                        placeholder="件数"
-                                        value={goalForms[share.id]?.values?.['p_' + p.id] ?? ''}
-                                        onChange={e => updateGoalForm(share.id, 'p_' + p.id, e.target.value === '' ? '' : parseInt(e.target.value, 10))}
-                                        className="w-full text-right px-2 py-1.5 text-sm font-bold rounded-md bg-white border border-gray-200 focus:ring-1 focus:ring-amber-500"
-                                      />
+                                {(settings.products || []).filter(p => {
+                                  const gItems = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
+                                  return gItems.length > 0;
+                                }).map(p => {
+                                  const gItems = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
+                                  return (
+                                    <div key={p.id} className="flex flex-col bg-[#f2f2f7] p-2 rounded-lg">
+                                      <span className="text-[10px] font-bold text-gray-700 truncate">{p.name} <span className="text-amber-500">({gItems.join(', ')})</span></span>
+                                      <div className="flex items-center mt-1">
+                                        <input 
+                                          type="number" 
+                                          min="0"
+                                          placeholder="件数"
+                                          value={goalForms[share.id]?.values?.['p_' + p.id] ?? ''}
+                                          onChange={e => updateGoalForm(share.id, 'p_' + p.id, e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                                          className="w-full text-right px-2 py-1.5 text-sm font-bold rounded-md bg-white border border-gray-200 focus:ring-1 focus:ring-amber-500"
+                                        />
+                                      </div>
                                     </div>
-                                  </div>
-                                ))}
-                                {(settings.otherStats || []).filter(os => os.goalItem).map(os => (
-                                  <div key={os.id} className="flex flex-col bg-[#f2f2f7] p-2 rounded-lg">
-                                    <span className="text-[10px] font-bold text-gray-700 truncate">{os.subCategory} <span className="text-amber-500">({os.goalItem})</span></span>
-                                    <div className="flex items-center mt-1">
-                                      <input 
-                                        type="number" 
-                                        min="0"
-                                        placeholder="件数"
-                                        value={goalForms[share.id]?.values?.['o_' + os.id] ?? ''}
-                                        onChange={e => updateGoalForm(share.id, 'o_' + os.id, e.target.value === '' ? '' : parseInt(e.target.value, 10))}
-                                        className="w-full text-right px-2 py-1.5 text-sm font-bold rounded-md bg-white border border-gray-200 focus:ring-1 focus:ring-amber-500"
-                                      />
+                                  );
+                                })}
+                                {(settings.otherStats || []).filter(os => {
+                                  const gItems = Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : []);
+                                  return gItems.length > 0;
+                                }).map(os => {
+                                  const gItems = Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : []);
+                                  return (
+                                    <div key={os.id} className="flex flex-col bg-[#f2f2f7] p-2 rounded-lg">
+                                      <span className="text-[10px] font-bold text-gray-700 truncate">{os.subCategory} <span className="text-amber-500">({gItems.join(', ')})</span></span>
+                                      <div className="flex items-center mt-1">
+                                        <input 
+                                          type="number" 
+                                          min="0"
+                                          placeholder="件数"
+                                          value={goalForms[share.id]?.values?.['o_' + os.id] ?? ''}
+                                          onChange={e => updateGoalForm(share.id, 'o_' + os.id, e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                                          className="w-full text-right px-2 py-1.5 text-sm font-bold rounded-md bg-white border border-gray-200 focus:ring-1 focus:ring-amber-500"
+                                        />
+                                      </div>
                                     </div>
-                                  </div>
-                                ))}
-                                {(settings.products || []).filter(p => p.goalItem).length === 0 && (settings.otherStats || []).filter(os => os.goalItem).length === 0 && (
+                                  );
+                                })}
+                                {(settings.products || []).filter(p => (Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : [])).length > 0).length === 0 && 
+                                 (settings.otherStats || []).filter(os => (Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : [])).length > 0).length === 0 && (
                                    <div className="col-span-2 text-xs text-gray-400 py-2 text-center">設定タブで目標対象の項目を指定してください</div>
                                 )}
                               </div>
                               <button onClick={() => submitGoalForm(share.id)} className="w-full bg-gray-900 text-white py-2.5 rounded-xl text-xs font-bold active:scale-95 transition-transform">目標を提出・上書きする</button>
                             </div>
 
-                            {/* 提出された目標一覧 (進捗メモのみ) */}
+                            {/* 提出された目標一覧 (メモは削除) */}
                             {Object.keys(share.goals || {}).length > 0 && (
                               <div className="space-y-3 mt-4 border-t border-gray-200 pt-4">
                                 <div className="flex flex-col mb-2">
-                                  <span className="text-xs font-bold text-gray-500">提出済みの目標と進捗メモ</span>
+                                  <span className="text-xs font-bold text-gray-500">提出済みの目標一覧</span>
                                   <span className="text-[10px] text-amber-600 font-bold mt-1">※実際の達成率・実績数はデータタブの「各種目標達成率」で確認できます。</span>
                                 </div>
                                 {Object.entries(share.goals || {}).map(([staffId, goalVals]) => {
@@ -1696,33 +1683,23 @@
                                         </span>
                                       </div>
                                       
-                                      <div className="flex flex-wrap gap-2 mb-3">
-                                        {(settings.products || []).filter(p => p.goalItem && goalVals['p_' + p.id]).map(p => (
+                                      <div className="flex flex-wrap gap-2 mb-1">
+                                        {(settings.products || []).filter(p => {
+                                          const gItems = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
+                                          return gItems.length > 0 && goalVals['p_' + p.id];
+                                        }).map(p => (
                                           <span key={p.id} className="text-[10px] bg-gray-50 border border-gray-200 text-gray-600 px-2 py-1 rounded-md">
                                             {p.name}: <strong className="text-gray-900">{goalVals['p_' + p.id]}件</strong>
                                           </span>
                                         ))}
-                                        {(settings.otherStats || []).filter(os => os.goalItem && goalVals['o_' + os.id]).map(os => (
+                                        {(settings.otherStats || []).filter(os => {
+                                          const gItems = Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : []);
+                                          return gItems.length > 0 && goalVals['o_' + os.id];
+                                        }).map(os => (
                                           <span key={os.id} className="text-[10px] bg-gray-50 border border-gray-200 text-gray-600 px-2 py-1 rounded-md">
                                             {os.subCategory}: <strong className="text-gray-900">{goalVals['o_' + os.id]}件</strong>
                                           </span>
                                         ))}
-                                      </div>
-
-                                      <div className="flex gap-2">
-                                        <input 
-                                          placeholder="進捗メモを入力 (例: 現在3件)" 
-                                          value={goalProgressInput.shareId === share.id && goalProgressInput.staffId === staffId ? goalProgressInput.text : (goalVals.progressText || '')}
-                                          onFocus={() => setGoalProgressInput({ shareId: share.id, staffId, text: goalVals.progressText || '' })}
-                                          onChange={e => setGoalProgressInput({ shareId: share.id, staffId, text: e.target.value })}
-                                          className={`${inputClass} px-2 py-1.5 text-xs flex-1 bg-white border border-gray-200`}
-                                        />
-                                        <button 
-                                          onClick={() => updateGoalProgress(share.id, staffId, share.goals)}
-                                          className="bg-gray-800 text-white px-3 rounded-lg text-xs font-bold active:scale-95 transition-transform"
-                                        >
-                                          更新
-                                        </button>
                                       </div>
                                     </div>
                                   );
@@ -1890,16 +1867,25 @@
                                   {p.items.map(i => <option key={i} value={i}>{i}</option>)}
                                 </select>
                               </div>
-                              <div className="flex items-center text-xs bg-white p-2.5 rounded-xl mt-1">
-                                <span className="text-gray-400 font-bold ml-1 w-24">個人目標集計:</span>
-                                <select 
-                                  value={p.goalItem || ''} 
-                                  onChange={(e) => updateGoalItem(p.id, e.target.value)}
-                                  className="bg-transparent font-bold text-amber-600 focus:outline-none flex-1 py-1"
-                                >
-                                  <option value="">目標対象にしない</option>
-                                  {p.items.map(i => <option key={i} value={i}>{i}</option>)}
-                                </select>
+                              <div className="flex flex-col text-xs bg-white p-2.5 rounded-xl mt-1">
+                                <span className="text-gray-400 font-bold ml-1 mb-1">個人目標集計 (複数選択可):</span>
+                                <div className="flex flex-wrap gap-1.5 px-1">
+                                  {p.items.map(i => {
+                                    const currentItems = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
+                                    const isSelected = currentItems.includes(i);
+                                    return (
+                                      <label key={i} className="flex items-center space-x-1.5 bg-gray-50 px-2 py-1 rounded border border-gray-200 cursor-pointer active:scale-95 transition-transform">
+                                        <input 
+                                          type="checkbox" 
+                                          checked={isSelected} 
+                                          onChange={() => toggleGoalItem(p.id, i)} 
+                                          className="rounded text-amber-500 focus:ring-amber-500 border-gray-300"
+                                        />
+                                        <span className={`font-medium ${isSelected ? 'text-gray-900' : 'text-gray-500'}`}>{i}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
                               </div>
                               <div className="absolute top-4 right-3 flex gap-2 bg-white rounded-lg px-1 shadow-[0_0_10px_rgba(0,0,0,0.05)]">
                                 <button onClick={() => moveItem('products', idx, 'up')} disabled={idx === 0} className="text-gray-400 hover:text-gray-900 p-1 disabled:opacity-30 active:scale-90"><ArrowUp size={16}/></button>
@@ -1970,16 +1956,25 @@
                                   {os.items.map(i => <option key={i} value={i}>{i}</option>)}
                                 </select>
                               </div>
-                              <div className="flex items-center text-xs bg-white p-2.5 rounded-xl mt-1">
-                                <span className="text-gray-400 font-bold ml-1 w-24">個人目標集計:</span>
-                                <select 
-                                  value={os.goalItem || ''} 
-                                  onChange={(e) => updateOtherStatGoalItem(os.id, e.target.value)}
-                                  className="bg-transparent font-bold text-amber-600 focus:outline-none flex-1 py-1"
-                                >
-                                  <option value="">目標対象にしない</option>
-                                  {os.items.map(i => <option key={i} value={i}>{i}</option>)}
-                                </select>
+                              <div className="flex flex-col text-xs bg-white p-2.5 rounded-xl mt-1">
+                                <span className="text-gray-400 font-bold ml-1 mb-1">個人目標集計 (複数選択可):</span>
+                                <div className="flex flex-wrap gap-1.5 px-1">
+                                  {os.items.map(i => {
+                                    const currentItems = Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : []);
+                                    const isSelected = currentItems.includes(i);
+                                    return (
+                                      <label key={i} className="flex items-center space-x-1.5 bg-gray-50 px-2 py-1 rounded border border-gray-200 cursor-pointer active:scale-95 transition-transform">
+                                        <input 
+                                          type="checkbox" 
+                                          checked={isSelected} 
+                                          onChange={() => toggleOtherStatGoalItem(os.id, i)} 
+                                          className="rounded text-amber-500 focus:ring-amber-500 border-gray-300"
+                                        />
+                                        <span className={`font-medium ${isSelected ? 'text-gray-900' : 'text-gray-500'}`}>{i}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
                               </div>
                               <div className="absolute top-4 right-3 flex gap-2 bg-white rounded-lg px-1 shadow-[0_0_10px_rgba(0,0,0,0.05)]">
                                 <button onClick={() => moveItem('otherStats', idx, 'up')} disabled={idx === 0} className="text-gray-400 hover:text-amber-500 p-1 disabled:opacity-30 active:scale-90"><ArrowUp size={16}/></button>
