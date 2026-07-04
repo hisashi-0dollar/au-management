@@ -1440,32 +1440,53 @@
 
                             <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
                               <p className="text-xs font-bold text-amber-600 mb-2">自分の目標を入力して提出</p>
-                              <select value={goalForms[share.id]?.staffId || ''} onChange={e => updateGoalForm(share.id, 'staffId', e.target.value)} className={`${inputClass} px-3 py-2.5 text-xs mb-3 font-semibold`}>
+                              <select 
+                                value={goalForms[share.id]?.staffId || ''} 
+                                onChange={e => updateGoalForm(share.id, 'staffId', e.target.value)}
+                                className={`${inputClass} px-3 py-2.5 text-xs mb-3 font-semibold`}
+                              >
                                 <option value="">自分の名前を選択...</option>
-                                {(settings.staffs || []).filter(s => share.targetShopId === 'all' || s.shopId === share.targetShopId).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                {(settings.staffs || []).filter(s => share.targetShopId === 'all' || s.shopId === share.targetShopId).map(s => (
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
                               </select>
                               
                               <div className="grid grid-cols-2 gap-2 mb-3 max-h-48 overflow-y-auto hide-scroll">
-                                {(settings.products || []).filter(p => (Array.isArray(p.goalItems) ? p.goalItems : []).length > 0).map(p => {
-                                  const gItems = Array.isArray(p.goalItems) ? p.goalItems : [];
-                                  return (
-                                    <div key={p.id} className="flex flex-col bg-[#f2f2f7] p-2 rounded-lg">
-                                      <span className="text-[10px] font-bold text-gray-700 truncate">{p.name} <span className="text-amber-500">({gItems.join(', ')})</span></span>
-                                      <div className="flex items-center mt-1"><input type="number" min="0" placeholder="件数" value={goalForms[share.id]?.values?.['p_' + p.id] ?? ''} onChange={e => updateGoalForm(share.id, 'p_' + p.id, e.target.value === '' ? '' : parseInt(e.target.value, 10))} className="w-full text-right px-2 py-1.5 text-sm font-bold rounded-md bg-white border border-gray-200 focus:ring-1 focus:ring-amber-500" /></div>
+                                {(settings.products || []).flatMap(p => {
+                                  const gItems = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
+                                  return gItems.map(gItem => (
+                                    <div key={`p_${p.id}_${gItem}`} className="flex flex-col bg-[#f2f2f7] p-2 rounded-lg">
+                                      <span className="text-[10px] font-bold text-gray-700 truncate">{p.name} <span className="text-amber-500">({gItem})</span></span>
+                                      <div className="flex items-center mt-1">
+                                        <input 
+                                          type="number" min="0" placeholder="件数"
+                                          value={goalForms[share.id]?.values?.[`p_${p.id}_${gItem}`] ?? ''}
+                                          onChange={e => updateGoalForm(share.id, `p_${p.id}_${gItem}`, e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                                          className="w-full text-right px-2 py-1.5 text-sm font-bold rounded-md bg-white border border-gray-200 focus:ring-1 focus:ring-amber-500"
+                                        />
+                                      </div>
                                     </div>
-                                  );
+                                  ));
                                 })}
-                                {(settings.otherStats || []).filter(os => (Array.isArray(os.goalItems) ? os.goalItems : []).length > 0).map(os => {
-                                  const gItems = Array.isArray(os.goalItems) ? os.goalItems : [];
-                                  return (
-                                    <div key={os.id} className="flex flex-col bg-[#f2f2f7] p-2 rounded-lg">
-                                      <span className="text-[10px] font-bold text-gray-700 truncate">{os.subCategory} <span className="text-amber-500">({gItems.join(', ')})</span></span>
-                                      <div className="flex items-center mt-1"><input type="number" min="0" placeholder="件数" value={goalForms[share.id]?.values?.['o_' + os.id] ?? ''} onChange={e => updateGoalForm(share.id, 'o_' + os.id, e.target.value === '' ? '' : parseInt(e.target.value, 10))} className="w-full text-right px-2 py-1.5 text-sm font-bold rounded-md bg-white border border-gray-200 focus:ring-1 focus:ring-amber-500" /></div>
+                                {(settings.otherStats || []).flatMap(os => {
+                                  const gItems = Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : []);
+                                  return gItems.map(gItem => (
+                                    <div key={`o_${os.id}_${gItem}`} className="flex flex-col bg-[#f2f2f7] p-2 rounded-lg">
+                                      <span className="text-[10px] font-bold text-gray-700 truncate">{os.subCategory} <span className="text-amber-500">({gItem})</span></span>
+                                      <div className="flex items-center mt-1">
+                                        <input 
+                                          type="number" min="0" placeholder="件数"
+                                          value={goalForms[share.id]?.values?.[`o_${os.id}_${gItem}`] ?? ''}
+                                          onChange={e => updateGoalForm(share.id, `o_${os.id}_${gItem}`, e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                                          className="w-full text-right px-2 py-1.5 text-sm font-bold rounded-md bg-white border border-gray-200 focus:ring-1 focus:ring-amber-500"
+                                        />
+                                      </div>
                                     </div>
-                                  );
+                                  ));
                                 })}
-                                {(settings.products || []).filter(p => (Array.isArray(p.goalItems) ? p.goalItems : []).length > 0).length === 0 && (settings.otherStats || []).filter(os => (Array.isArray(os.goalItems) ? os.goalItems : []).length > 0).length === 0 && (
-                                   <div className="col-span-2 text-xs text-gray-400 py-2 text-center">設定で目標対象の項目を指定してください</div>
+                                {(settings.products || []).filter(p => (Array.isArray(p.goalItems) ? p.goalItems : []).length > 0).length === 0 && 
+                                 (settings.otherStats || []).filter(os => (Array.isArray(os.goalItems) ? os.goalItems : []).length > 0).length === 0 && (
+                                   <div className="col-span-2 text-xs text-gray-400 py-2 text-center">設定タブで目標対象の項目を指定してください</div>
                                 )}
                               </div>
                               <button onClick={() => submitGoalForm(share.id)} className="w-full bg-gray-900 text-white py-2.5 rounded-xl text-xs font-bold active:scale-95 transition-transform">目標を提出・上書きする</button>
@@ -1475,23 +1496,38 @@
                               <div className="space-y-3 mt-4 border-t border-gray-200 pt-4">
                                 <div className="flex flex-col mb-2">
                                   <span className="text-xs font-bold text-gray-500">提出済みの目標一覧</span>
+                                  <span className="text-[10px] text-amber-600 font-bold mt-1">※実際の達成率・実績数はデータタブの「各種目標達成率」で確認できます。</span>
                                 </div>
                                 {Object.entries(share.goals || {}).map(([staffId, goalVals]) => {
                                   const staffName = (settings.staffs || []).find(s => s.id === staffId)?.name || '不明';
                                   if (!Object.keys(goalVals).some(k => k.startsWith('p_') || k.startsWith('o_'))) return null;
+
                                   return (
                                     <div key={staffId} className="bg-white p-3 rounded-xl border border-gray-100 relative">
                                       <div className="flex justify-between items-start mb-2">
                                         <span className="font-bold text-gray-800 text-sm">{staffName}</span>
-                                        <span className={`text-[10px] px-2 py-1 rounded font-bold ${goalVals.isCompleted ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-500'}`}>{goalVals.isCompleted ? '達成！' : '未達成'}</span>
+                                        <span className={`text-[10px] px-2 py-1 rounded font-bold ${goalVals.isCompleted ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                          {goalVals.isCompleted ? '達成！' : '未達成'}
+                                        </span>
                                       </div>
+                                      
                                       <div className="flex flex-wrap gap-2 mb-1">
-                                        {(settings.products || []).filter(p => (Array.isArray(p.goalItems) ? p.goalItems : []).length > 0 && goalVals['p_' + p.id]).map(p => (
-                                          <span key={p.id} className="text-[10px] bg-gray-50 border border-gray-200 text-gray-600 px-2 py-1 rounded-md">{p.name}: <strong className="text-gray-900">{goalVals['p_' + p.id]}件</strong></span>
-                                        ))}
-                                        {(settings.otherStats || []).filter(os => (Array.isArray(os.goalItems) ? os.goalItems : []).length > 0 && goalVals['o_' + os.id]).map(os => (
-                                          <span key={os.id} className="text-[10px] bg-gray-50 border border-gray-200 text-gray-600 px-2 py-1 rounded-md">{os.subCategory}: <strong className="text-gray-900">{goalVals['o_' + os.id]}件</strong></span>
-                                        ))}
+                                        {(settings.products || []).flatMap(p => {
+                                          const gItems = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
+                                          return gItems.filter(gItem => goalVals[`p_${p.id}_${gItem}`]).map(gItem => (
+                                            <span key={`p_${p.id}_${gItem}`} className="text-[10px] bg-gray-50 border border-gray-200 text-gray-600 px-2 py-1 rounded-md">
+                                              {p.name}({gItem}): <strong className="text-gray-900">{goalVals[`p_${p.id}_${gItem}`]}件</strong>
+                                            </span>
+                                          ));
+                                        })}
+                                        {(settings.otherStats || []).flatMap(os => {
+                                          const gItems = Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : []);
+                                          return gItems.filter(gItem => goalVals[`o_${os.id}_${gItem}`]).map(gItem => (
+                                            <span key={`o_${os.id}_${gItem}`} className="text-[10px] bg-gray-50 border border-gray-200 text-gray-600 px-2 py-1 rounded-md">
+                                              {os.subCategory}({gItem}): <strong className="text-gray-900">{goalVals[`o_${os.id}_${gItem}`]}件</strong>
+                                            </span>
+                                          ));
+                                        })}
                                       </div>
                                     </div>
                                   );
