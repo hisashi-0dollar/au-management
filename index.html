@@ -1257,22 +1257,30 @@
                             if (goalVals[k] > 0) allGoalKeys.add(k);
                           });
                         });
-                        const goalColumns = Array.from(allGoalKeys).map(key => {
-                          if (key.startsWith('p_')) {
-                             const parts = key.split('_');
-                             const pId = parts[1];
-                             const item = parts.slice(2).join('_');
-                             const p = (settings.products || []).find(x => String(x.id) === String(pId));
-                             return { key, label: p ? `${p.name}(${item})` : key };
-                          } else if (key.startsWith('o_')) {
-                             const parts = key.split('_');
-                             const osId = parts[1];
-                             const item = parts.slice(2).join('_');
-                             const os = (settings.otherStats || []).find(x => String(x.id) === String(osId));
-                             return { key, label: os ? `${os.subCategory}(${item})` : key };
-                          }
-                          return null;
-                        }).filter(Boolean);
+                        
+                        const goalColumns = [];
+                        
+                        // 設定された商材の順番で列を作成
+                        (settings.products || []).forEach(p => {
+                          const gItems = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
+                          gItems.forEach(gItem => {
+                            const key = `p_${p.id}_${gItem}`;
+                            if (allGoalKeys.has(key)) {
+                              goalColumns.push({ key, label: `${p.name}(${gItem})` });
+                            }
+                          });
+                        });
+
+                        // 設定されたその他実績の順番で列を作成
+                        (settings.otherStats || []).forEach(os => {
+                          const gItems = Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : []);
+                          gItems.forEach(gItem => {
+                            const key = `o_${os.id}_${gItem}`;
+                            if (allGoalKeys.has(key)) {
+                              goalColumns.push({ key, label: `${os.subCategory}(${gItem})` });
+                            }
+                          });
+                        });
 
                         return (
                           <div key={share.id} className="bg-white p-5 rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border border-gray-100/50 space-y-6">
@@ -2368,16 +2376,25 @@
                               <div className="flex flex-wrap gap-1.5 mb-1">
                                 {os.items.map(i => <span key={i} className="bg-white text-gray-600 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-sm">{i}</span>)}
                               </div>
-                              <div className="flex items-center text-xs bg-white p-2.5 rounded-xl mt-3">
-                                <span className="text-gray-400 font-bold ml-1 w-24">ランキング集計:</span>
-                                <select 
-                                  value={os.rankingItem || ''} 
-                                  onChange={(e) => updateOtherStatRankingItem(os.id, e.target.value)}
-                                  className="bg-transparent font-bold text-gray-900 focus:outline-none flex-1 py-1"
-                                >
-                                  <option value="">設定しない</option>
-                                  {os.items.map(i => <option key={i} value={i}>{i}</option>)}
-                                </select>
+                              <div className="flex flex-col text-xs bg-white p-2.5 rounded-xl mt-3">
+                                <span className="text-gray-400 font-bold ml-1 mb-1">ランキング集計 (複数選択可):</span>
+                                <div className="flex flex-wrap gap-1.5 px-1">
+                                  {os.items.map(i => {
+                                    const currentItems = Array.isArray(os.rankingItems) ? os.rankingItems : (os.rankingItem ? [os.rankingItem] : []);
+                                    const isSelected = currentItems.includes(i);
+                                    return (
+                                      <label key={i} className="flex items-center space-x-1.5 bg-gray-50 px-2 py-1 rounded border border-gray-200 cursor-pointer active:scale-95 transition-transform">
+                                        <input 
+                                          type="checkbox" 
+                                          checked={isSelected} 
+                                          onChange={() => toggleOtherStatRankingItem(os.id, i)} 
+                                          className="rounded text-amber-500 focus:ring-amber-500 border-gray-300"
+                                        />
+                                        <span className={`font-medium ${isSelected ? 'text-gray-900' : 'text-gray-500'}`}>{i}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
                               </div>
                               <div className="flex flex-col text-xs bg-white p-2.5 rounded-xl mt-1">
                                 <span className="text-gray-400 font-bold ml-1 mb-1">個人目標集計 (複数選択可):</span>
