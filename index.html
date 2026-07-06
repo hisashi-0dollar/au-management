@@ -1807,48 +1807,37 @@
                               <button onClick={() => submitGoalForm(share.id)} className="w-full bg-gray-900 text-white py-2.5 rounded-xl text-xs font-bold active:scale-95 transition-transform">目標を提出・上書きする</button>
                             </div>
 
-                            {Object.keys(share.goals || {}).length > 0 && (
-                              <div className="space-y-3 mt-4 border-t border-gray-200 pt-4">
-                                <div className="flex flex-col mb-2">
-                                  <span className="text-xs font-bold text-gray-500">提出済みの目標一覧</span>
-                                  <span className="text-[10px] text-amber-600 font-bold mt-1">※実際の達成率・実績数はデータタブの「各種目標達成率」で確認できます。</span>
-                                </div>
-                                {Object.entries(share.goals || {}).map(([staffId, goalVals]) => {
-                                  const staffName = (settings.staffs || []).find(s => s.id === staffId)?.name || '不明';
-                                  if (!Object.keys(goalVals).some(k => k.startsWith('p_') || k.startsWith('o_'))) return null;
+                            {/* 未提出スタッフ一覧の表示 */}
+                            {(() => {
+                              const targetStaffs = (settings.staffs || []).filter(s => share.targetShopId === 'all' || s.shopId === share.targetShopId);
+                              const submittedStaffIds = Object.keys(share.goals || {});
+                              const unsubmittedStaffs = targetStaffs.filter(s => !submittedStaffIds.includes(s.id));
 
-                                  return (
-                                    <div key={staffId} className="bg-white p-3 rounded-xl border border-gray-100 relative">
-                                      <div className="flex justify-between items-start mb-2">
-                                        <span className="font-bold text-gray-800 text-sm">{staffName}</span>
-                                        <span className={`text-[10px] px-2 py-1 rounded font-bold ${goalVals.isCompleted ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
-                                          {goalVals.isCompleted ? '達成！' : '未達成'}
-                                        </span>
+                              return (
+                                <div className="space-y-3 mt-4 border-t border-gray-200 pt-4">
+                                  {unsubmittedStaffs.length > 0 ? (
+                                    <>
+                                      <div className="flex flex-col mb-1">
+                                        <span className="text-xs font-bold text-gray-500">未提出のスタッフ</span>
                                       </div>
-                                      
-                                      <div className="flex flex-wrap gap-2 mb-1">
-                                        {(settings.products || []).flatMap(p => {
-                                          const gItems = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
-                                          return gItems.filter(gItem => goalVals[`p_${p.id}_${gItem}`]).map(gItem => (
-                                            <span key={`${p.id}_${gItem}`} className="text-[10px] bg-gray-50 border border-gray-200 text-gray-600 px-2 py-1 rounded-md">
-                                              {p.name}({gItem}): <strong className="text-gray-900">{goalVals[`p_${p.id}_${gItem}`]}件</strong>
-                                            </span>
-                                          ));
-                                        })}
-                                        {(settings.otherStats || []).flatMap(os => {
-                                          const gItems = Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : []);
-                                          return gItems.filter(gItem => goalVals[`o_${os.id}_${gItem}`]).map(gItem => (
-                                            <span key={`${os.id}_${gItem}`} className="text-[10px] bg-gray-50 border border-gray-200 text-gray-600 px-2 py-1 rounded-md">
-                                              {os.subCategory}({gItem}): <strong className="text-gray-900">{goalVals[`o_${os.id}_${gItem}`]}件</strong>
-                                            </span>
-                                          ));
-                                        })}
+                                      <div className="flex flex-wrap gap-2">
+                                        {unsubmittedStaffs.map(s => (
+                                          <span key={s.id} className="text-[10px] bg-red-50 text-red-600 border border-red-100 px-2 py-1.5 rounded-md font-bold shadow-sm">
+                                            {s.name}
+                                          </span>
+                                        ))}
                                       </div>
+                                    </>
+                                  ) : (
+                                    <div className="text-center py-2">
+                                      <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-100 inline-block shadow-sm">
+                                        全員目標を提出済みです 🎉
+                                      </span>
                                     </div>
-                                  );
-                                })}
-                              </div>
-                            )}
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </div>
                         )}
                       </div>
