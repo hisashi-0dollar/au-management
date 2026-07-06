@@ -143,18 +143,32 @@
         return () => unsubscribe();
       }, []);
 
+      // ▼ ここから差し替え ▼
       const fetchRecordsFromGas = async (since) => {
         const url = settings.gasUrl || GAS_URL;
         if (!url) return;
         try {
-          const res = await fetch(`${url}?action=getRecords&since=${since}`);
+          // ★修正1: URLの最後に「現在時刻」を付けて、ブラウザのキャッシュ(古い記憶)を強制的に無視させる
+          const res = await fetch(`${url}?action=getRecords&since=${since}&_t=${Date.now()}`, { cache: 'no-store' });
           if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
           const data = await res.json();
+          
+          // ★修正2: スプレッドシートの日付形式のズレ(/や-など)を確実に YYYY-MM-DD に統一する
           const normalizedData = data.map(r => {
             let dStr = r.date || '';
-            if (dStr.includes('T')) {
-              dStr = getLocalDateString(new Date(dStr));
-            }
+            try {
+              if (dStr.includes('T')) {
+                const dt = new Date(dStr);
+                if (!isNaN(dt.getTime())) dStr = getLocalDateString(dt);
+              } else if (dStr.includes('/')) {
+                const parts = dStr.split('/');
+                if (parts.length === 3) dStr = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+              } else if (dStr.includes('-')) {
+                const parts = dStr.split('-');
+                if (parts.length === 3) dStr = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+              }
+            } catch(e) {}
+
             return { 
               ...r, 
               date: dStr,
@@ -169,6 +183,7 @@
           console.error("GAS fetch error:", e);
         }
       };
+      // ▲ ここまで差し替え ▲
 
       useEffect(() => {
         if (!user || !db) return;
