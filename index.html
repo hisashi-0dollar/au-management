@@ -99,6 +99,7 @@
       };
 
       useEffect(() => {
+        // セキュリティ制限エラーを解消するため、プレビュー環境の正規IDを使用するように戻します
         const id = typeof __app_id !== 'undefined' ? __app_id : 'au-shop-app';
         setAppId(id);
         
@@ -1782,25 +1783,51 @@
                           {share.deadline && <div className={`flex items-center font-bold ${isExpired ? 'text-red-500' : 'text-amber-500'}`}><Calendar size={12} className="mr-1"/>期限: {share.deadline}</div>}
                         </div>
 
-                        {isTask && (
-                          <div className="bg-[#f2f2f7] p-4 rounded-2xl mt-4">
-                            <p className="text-xs font-bold text-gray-500 mb-3">対象スタッフの完了状況</p>
-                            <div className="flex flex-wrap gap-2">
-                              {share.targetStaffIds?.map(staffId => {
-                                const staffName = (settings.staffs || []).find(s => s.id === staffId)?.name || '不明';
-                                const isCompleted = share.completedStaffIds?.includes(staffId);
-                                return (
-                                  <button 
-                                    key={staffId} 
-                                    onClick={() => toggleTaskCompletion(share, staffId)}
-                                    className={`flex items-center px-3 py-1.5 rounded-xl text-sm font-semibold transition-all active:scale-95 ${isCompleted ? 'bg-gray-900 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200'}`}
-                                  >
-                                    {isCompleted ? <CheckSquare size={14} className="mr-1.5 opacity-80" /> : <Square size={14} className="mr-1.5 opacity-50" />}
-                                    {staffName}
-                                  </button>
-                                );
-                              })}
-                            </div>
+                        {isTask && (share.targetShopIds?.length > 0 || share.targetStaffIds?.length > 0) && (
+                          <div className="bg-[#f2f2f7] p-4 rounded-2xl mt-4 space-y-4">
+                            {share.targetShopIds?.length > 0 && (
+                              <div>
+                                <p className="text-xs font-bold text-gray-500 mb-2">対象店舗の完了状況</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {share.targetShopIds.map(shopId => {
+                                    const shopName = (settings.shops || []).find(s => s.id === shopId)?.name || '不明';
+                                    const isCompleted = share.completedShopIds?.includes(shopId);
+                                    return (
+                                      <button 
+                                        key={shopId} 
+                                        onClick={() => toggleShopTaskCompletion(share, shopId)}
+                                        className={`flex items-center px-3 py-1.5 rounded-xl text-sm font-semibold transition-all active:scale-95 ${isCompleted ? 'bg-gray-900 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200'}`}
+                                      >
+                                        {isCompleted ? <CheckSquare size={14} className="mr-1.5 opacity-80" /> : <Square size={14} className="mr-1.5 opacity-50" />}
+                                        {shopName}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {share.targetStaffIds?.length > 0 && (
+                              <div>
+                                <p className="text-xs font-bold text-gray-500 mb-2">対象スタッフの完了状況</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {share.targetStaffIds.map(staffId => {
+                                    const staffName = (settings.staffs || []).find(s => s.id === staffId)?.name || '不明';
+                                    const isCompleted = share.completedStaffIds?.includes(staffId);
+                                    return (
+                                      <button 
+                                        key={staffId} 
+                                        onClick={() => toggleTaskCompletion(share, staffId)}
+                                        className={`flex items-center px-3 py-1.5 rounded-xl text-sm font-semibold transition-all active:scale-95 ${isCompleted ? 'bg-gray-900 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200'}`}
+                                      >
+                                        {isCompleted ? <CheckSquare size={14} className="mr-1.5 opacity-80" /> : <Square size={14} className="mr-1.5 opacity-50" />}
+                                        {staffName}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
 
