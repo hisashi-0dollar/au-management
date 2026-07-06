@@ -143,32 +143,25 @@
         return () => unsubscribe();
       }, []);
 
-      // ▼ ここから差し替え ▼
       const fetchRecordsFromGas = async (since) => {
         const url = settings.gasUrl || GAS_URL;
-        if (!url) return;
+        if (!url) return false;
         try {
-          // ★修正1: URLの最後に「現在時刻」を付けて、ブラウザのキャッシュ(古い記憶)を強制的に無視させる
-          const res = await fetch(`${url}?action=getRecords&since=${since}&_t=${Date.now()}`, { cache: 'no-store' });
+          const res = await fetch(`${url}?action=getRecords&since=${since}&_t=${Date.now()}`, {
+            method: 'GET',
+            redirect: 'follow'
+          });
           if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-          const data = await res.json();
           
-          // ★修正2: スプレッドシートの日付形式のズレ(/や-など)を確実に YYYY-MM-DD に統一する
+          const text = await res.text();
+          if (text.startsWith('<')) throw new Error("GASがHTML(ログイン画面等)を返しました。アクセス権限を確認してください。");
+          
+          const data = JSON.parse(text);
           const normalizedData = data.map(r => {
             let dStr = r.date || '';
-            try {
-              if (dStr.includes('T')) {
-                const dt = new Date(dStr);
-                if (!isNaN(dt.getTime())) dStr = getLocalDateString(dt);
-              } else if (dStr.includes('/')) {
-                const parts = dStr.split('/');
-                if (parts.length === 3) dStr = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-              } else if (dStr.includes('-')) {
-                const parts = dStr.split('-');
-                if (parts.length === 3) dStr = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-              }
-            } catch(e) {}
-
+            if (dStr.includes('T')) {
+              dStr = getLocalDateString(new Date(dStr));
+            }
             return { 
               ...r, 
               date: dStr,
@@ -179,11 +172,12 @@
             };
           });
           setRecords(normalizedData);
+          return true;
         } catch (e) {
-          console.error("GAS fetch error:", e);
+          console.warn("スプレッドシート(GAS)通信エラー:", e.message);
+          return false;
         }
       };
-      // ▲ ここまで差し替え ▲
 
       useEffect(() => {
         if (!user || !db) return;
@@ -265,18 +259,22 @@
         if (!user || !db || !settings) return;
         const url = settings.gasUrl || GAS_URL;
 
-        if (url) {
-          fetchRecordsFromGas(dataSince);
-          const timer = setInterval(() => fetchRecordsFromGas(dataSince), 15000);
-          return () => clearInterval(timer);
-        } else {
-          const recordsRef = collection(db, 'artifacts', appId, 'public', 'data', 'records');
-          const q = query(recordsRef, where("timestamp", ">=", dataSince));
-          const unsubRecords = onSnapshot(q, (snap) => {
-            setRecords(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-          });
-          return () => unsubRecords();
-        }
+        let timer = null;
+
+        const initDataFetch = async () => {
+          if (url) {
+            const success = await fetchRecordsFromGas(dataSince);
+            if (success) {
+              timer = setInterval(() => fetchRecordsFromGas(dataSince), 15000);
+            }
+          }
+        };
+
+        initDataFetch();
+
+        return () => {
+          if (timer) clearInterval(timer);
+        };
       }, [user, db, appId, dataSince, settings.gasUrl]);
 
       const showMsg = (text, type = 'success') => {
@@ -333,17 +331,13 @@
               body: JSON.stringify({ action: 'addRecords', records: newRecords }) 
             });
             if(!res.ok) throw new Error("Network response was not ok");
-            const result = await res.json();
-            if(!result.success) throw new Error("GAS returned error: " + result.error);
             fetchRecordsFromGas(dataSince);
+            showMsg('商材実績を登録しました');
+            setSelectedItems({}); 
           } else {
-            const recordsRef = collection(db, 'artifacts', appId, 'public', 'data', 'records');
-            const promises = newRecords.map(r => addDoc(recordsRef, r));
-            await Promise.all(promises);
+            showMsg('設定エラー：スプレッドシートの連携URLがありません', 'error');
           }
-          showMsg('商材実績を登録しました');
-          setSelectedItems({}); 
-        } catch (err) { showMsg('登録できませんでした。再度、登録をしてください', 'error'); console.error(err); }
+        } catch (err) { showMsg('登録できませんでした', 'error'); console.error(err); }
       };
 
       const submitOtherRecords = async () => {
@@ -377,17 +371,13 @@
               body: JSON.stringify({ action: 'addRecords', records: newRecords }) 
             });
             if(!res.ok) throw new Error("Network response was not ok");
-            const result = await res.json();
-            if(!result.success) throw new Error("GAS returned error: " + result.error);
             fetchRecordsFromGas(dataSince);
+            showMsg('その他実績を登録しました');
+            setOtherCounts({}); 
           } else {
-            const recordsRef = collection(db, 'artifacts', appId, 'public', 'data', 'records');
-            const promises = newRecords.map(r => addDoc(recordsRef, r));
-            await Promise.all(promises);
+            showMsg('設定エラー：スプレッドシートの連携URLがありません', 'error');
           }
-          showMsg('その他実績を登録しました');
-          setOtherCounts({}); 
-        } catch (err) { showMsg('登録できませんでした。再度、登録をしてください', 'error'); console.error(err); }
+        } catch (err) { showMsg('登録できませんでした', 'error'); console.error(err); }
       };
 
       const currentWeekRecords = useMemo(() => {
@@ -602,10 +592,10 @@
             const result = await res.json();
             if(!result.success) throw new Error("GAS returned error: " + result.error);
             fetchRecordsFromGas(dataSince);
+            showMsg('実績を削除しました'); 
           } else {
-            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'records', id)); 
+            showMsg('設定エラー：スプレッドシートの連携URLがありません', 'error');
           }
-          showMsg('実績を削除しました'); 
         } 
         catch (e) { showMsg('削除できませんでした。再度お試しください', 'error'); }
       };
@@ -2302,25 +2292,16 @@
                               <div className="flex flex-wrap gap-1.5 mb-1">
                                 {os.items.map(i => <span key={i} className="bg-white text-gray-600 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-sm">{i}</span>)}
                               </div>
-                              <div className="flex flex-col text-xs bg-white p-2.5 rounded-xl mt-3">
-                                <span className="text-gray-400 font-bold ml-1 mb-1">ランキング集計 (複数選択可):</span>
-                                <div className="flex flex-wrap gap-1.5 px-1">
-                                  {os.items.map(i => {
-                                    const currentItems = Array.isArray(os.rankingItems) ? os.rankingItems : (os.rankingItem ? [os.rankingItem] : []);
-                                    const isSelected = currentItems.includes(i);
-                                    return (
-                                      <label key={i} className="flex items-center space-x-1.5 bg-gray-50 px-2 py-1 rounded border border-gray-200 cursor-pointer active:scale-95 transition-transform">
-                                        <input 
-                                          type="checkbox" 
-                                          checked={isSelected} 
-                                          onChange={() => toggleOtherStatRankingItem(os.id, i)} 
-                                          className="rounded text-amber-500 focus:ring-amber-500 border-gray-300"
-                                        />
-                                        <span className={`font-medium ${isSelected ? 'text-gray-900' : 'text-gray-500'}`}>{i}</span>
-                                      </label>
-                                    );
-                                  })}
-                                </div>
+                              <div className="flex items-center text-xs bg-white p-2.5 rounded-xl mt-3">
+                                <span className="text-gray-400 font-bold ml-1 w-24">ランキング集計:</span>
+                                <select 
+                                  value={os.rankingItem || ''} 
+                                  onChange={(e) => updateOtherStatRankingItem(os.id, e.target.value)}
+                                  className="bg-transparent font-bold text-gray-900 focus:outline-none flex-1 py-1"
+                                >
+                                  <option value="">設定しない</option>
+                                  {os.items.map(i => <option key={i} value={i}>{i}</option>)}
+                                </select>
                               </div>
                               <div className="flex flex-col text-xs bg-white p-2.5 rounded-xl mt-1">
                                 <span className="text-gray-400 font-bold ml-1 mb-1">個人目標集計 (複数選択可):</span>
