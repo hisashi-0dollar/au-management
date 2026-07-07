@@ -39,7 +39,7 @@
     
     import { initializeApp } from "firebase/app";
     import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
-    import { getFirestore, doc, setDoc, collection, addDoc, updateDoc, onSnapshot, deleteDoc, query, where } from "firebase/firestore";
+    import { getFirestore, doc, setDoc, getDoc, collection, addDoc, updateDoc, onSnapshot, deleteDoc, query, where } from "firebase/firestore";
     import { getAnalytics, isSupported } from "firebase/analytics";
 
     const GAS_URL = 'https://script.google.com/macros/s/AKfycbwTvFPfJjL9oTnxR8SCX_L9AZW_iT1va8_G4a4m-OqigO6tPYL8cn5EXAqxRnXduhh58w/exec';
@@ -175,9 +175,17 @@
       useEffect(() => {
         if (!user || !db) return;
         const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'main');
+        
+        // 修正: リアルタイム監視は「読み込み」のみに専念させ、上書き事故を防ぐ
         const unsubSettings = onSnapshot(settingsRef, (snap) => {
           if (snap.exists()) setSettings(snap.data());
-          else setDoc(settingsRef, defaultSettings).catch(e => console.error("初期設定の保存エラー(ルールを確認してください):", e));
+        });
+
+        // 修正: 起動時に1回だけ「本当にデータがないか」を慎重に確認し、空の時のみ初期データを作成する
+        getDoc(settingsRef).then(snap => {
+          if (!snap.exists()) {
+            setDoc(settingsRef, defaultSettings).catch(e => console.error("初期設定の保存エラー:", e));
+          }
         });
 
         const sharesRef = collection(db, 'artifacts', appId, 'public', 'data', 'shares');
