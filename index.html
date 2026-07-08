@@ -39,7 +39,7 @@
     
     import { initializeApp } from "firebase/app";
     import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
-    import { getFirestore, doc, setDoc, collection, addDoc, updateDoc, onSnapshot, deleteDoc, query, where } from "firebase/firestore";
+    import { getFirestore, doc, setDoc, getDoc, collection, addDoc, updateDoc, onSnapshot, deleteDoc, query, where } from "firebase/firestore";
     import { getAnalytics, isSupported } from "firebase/analytics";
 
     const GAS_URL = 'https://script.google.com/macros/s/AKfycbwTvFPfJjL9oTnxR8SCX_L9AZW_iT1va8_G4a4m-OqigO6tPYL8cn5EXAqxRnXduhh58w/exec';
@@ -124,7 +124,8 @@
           try {
             await signInAnonymously(auth);
           } catch (err) {
-            console.error('Auth error:', err);
+            console.error('Firebase認証エラー（匿名ログインが有効か確認してください）:', err);
+            showMsg('データベースへの接続に失敗しました。', 'error');
           }
         };
         initAuth();
@@ -144,7 +145,7 @@
           if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
           
           const text = await res.text();
-          if (text.startsWith('<')) throw new Error("GAS auth error");
+          if (text.startsWith('<')) throw new Error("GASがHTML(ログイン画面等)を返しました。アクセス権限を確認してください。");
           
           const data = JSON.parse(text);
           const normalizedData = data.map(r => {
@@ -164,7 +165,7 @@
           setRecords(normalizedData);
           return true;
         } catch (e) {
-          console.warn("GAS fetch error:", e.message);
+          console.warn("スプレッドシート(GAS)通信エラー:", e.message);
           return false;
         }
       };
@@ -172,6 +173,7 @@
       useEffect(() => {
         if (!user || !db) return;
         const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'main');
+        
         const unsubSettings = onSnapshot(settingsRef, (snap) => {
           if (snap.exists()) {
             setSettings(snap.data());
@@ -321,18 +323,14 @@
               headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({ action: 'addRecords', records: newRecords }) 
             });
-            if(!res.ok) throw new Error("Network error");
-            const result = await res.json();
-            if(!result.success) throw new Error("GAS error: " + result.error);
+            if(!res.ok) throw new Error("Network response was not ok");
             fetchRecordsFromGas(dataSince);
+            showMsg('商材実績を登録しました');
+            setSelectedItems({}); 
           } else {
-            const recordsRef = collection(db, 'artifacts', appId, 'public', 'data', 'records');
-            const promises = newRecords.map(r => addDoc(recordsRef, r));
-            await Promise.all(promises);
+            showMsg('設定エラー：スプレッドシートの連携URLがありません', 'error');
           }
-          showMsg('商材実績を登録しました');
-          setSelectedItems({}); 
-        } catch (err) { showMsg('登録できませんでした。再度、登録をしてください', 'error'); }
+        } catch (err) { showMsg('登録できませんでした', 'error'); console.error(err); }
       };
 
       const submitOtherRecords = async () => {
@@ -365,18 +363,14 @@
               headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({ action: 'addRecords', records: newRecords }) 
             });
-            if(!res.ok) throw new Error("Network error");
-            const result = await res.json();
-            if(!result.success) throw new Error("GAS error: " + result.error);
+            if(!res.ok) throw new Error("Network response was not ok");
             fetchRecordsFromGas(dataSince);
+            showMsg('その他実績を登録しました');
+            setOtherCounts({}); 
           } else {
-            const recordsRef = collection(db, 'artifacts', appId, 'public', 'data', 'records');
-            const promises = newRecords.map(r => addDoc(recordsRef, r));
-            await Promise.all(promises);
+            showMsg('設定エラー：スプレッドシートの連携URLがありません', 'error');
           }
-          showMsg('その他実績を登録しました');
-          setOtherCounts({}); 
-        } catch (err) { showMsg('登録できませんでした。再度、登録をしてください', 'error'); }
+        } catch (err) { showMsg('登録できませんでした', 'error'); console.error(err); }
       };
 
       const currentWeekRecords = useMemo(() => {
@@ -589,10 +583,10 @@
             });
             if(!res.ok) throw new Error("Network response was not ok");
             fetchRecordsFromGas(dataSince);
+            showMsg('実績を削除しました'); 
           } else {
-            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'records', id)); 
+            showMsg('設定エラー：スプレッドシートの連携URLがありません', 'error');
           }
-          showMsg('実績を削除しました'); 
         } 
         catch (e) { showMsg('削除できませんでした。再度お試しください', 'error'); }
       };
@@ -724,7 +718,6 @@
         } catch (err) { showMsg('提出に失敗しました', 'error'); }
       };
 
-      // 7日経過した共有の自動削除
       useEffect(() => {
         if (!db || shares.length === 0) return;
         const now = Date.now();
@@ -825,7 +818,6 @@
         window.scrollTo({ top: 0, behavior: 'smooth' });
       };
 
-      // タスクの7日間経過後の自動削除
       useEffect(() => {
         if (!db || tasks.length === 0) return;
         const now = Date.now();
@@ -1080,7 +1072,7 @@
                           {settings.products.map(p => {
                             const items = selectedItems[p.id] || [];
                             return (
-                              <div key={p.id} className="snap-center shrink-0 w-[85%] bg-white p-5 rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border border-gray-100/50 flex flex-col justify-between snap-always">
+                              <div key={p.id} className="snap-center snap-always shrink-0 w-[85%] bg-white p-5 rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border border-gray-100/50 flex flex-col justify-between">
                                 <div>
                                   <div className="text-[10px] text-amber-500 font-bold mb-1">{p.category || '未分類'}</div>
                                   <h4 className="font-bold text-lg text-gray-900 mb-4 pb-3 border-b border-gray-100">{p.name}</h4>
@@ -1121,7 +1113,7 @@
                           {settings.otherStats.map(os => {
                             const counts = otherCounts[os.id] || {};
                             return (
-                              <div key={os.id} className="snap-center shrink-0 w-[85%] bg-white p-5 rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border border-gray-100/50 flex flex-col justify-between snap-always">
+                              <div key={os.id} className="snap-center snap-always shrink-0 w-[85%] bg-white p-5 rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border border-gray-100/50 flex flex-col justify-between">
                                 <div>
                                   <div className="text-[10px] text-amber-500 font-bold mb-1">{os.mainCategory}</div>
                                   <h4 className="font-bold text-lg text-gray-900 mb-4 pb-3 border-b border-gray-100">{os.subCategory}</h4>
@@ -1251,6 +1243,7 @@
                         const targetStaffs = (settings.staffs || []).filter(s => share.targetShopId === 'all' || s.shopId === share.targetShopId);
                         const monthRecords = records.filter(r => r.date.startsWith(share.targetMonth));
                         
+                        // クロス集計用の列（目標設定されている項目）を抽出
                         const allGoalKeys = new Set();
                         Object.values(share.goals || {}).forEach(goalVals => {
                           Object.keys(goalVals).forEach(k => {
@@ -1260,6 +1253,7 @@
                         
                         const goalColumns = [];
                         
+                        // 設定された商材の順番で列を作成
                         (settings.products || []).forEach(p => {
                           const gItems = Array.isArray(p.goalItems) ? p.goalItems : (p.goalItem ? [p.goalItem] : []);
                           gItems.forEach(gItem => {
@@ -1270,6 +1264,7 @@
                           });
                         });
 
+                        // 設定されたその他実績の順番で列を作成
                         (settings.otherStats || []).forEach(os => {
                           const gItems = Array.isArray(os.goalItems) ? os.goalItems : (os.goalItem ? [os.goalItem] : []);
                           gItems.forEach(gItem => {
@@ -1299,7 +1294,7 @@
                                       const goalVals = share.goals?.[staff.id] || {};
                                       const staffRecords = monthRecords.filter(r => String(r.staffId) === String(staff.id));
                                       const hasGoal = goalColumns.some(col => goalVals[col.key] > 0);
-                                      if (!hasGoal) return null;
+                                      if (!hasGoal) return null; // 目標がないスタッフは非表示にする
 
                                       return (
                                         <tr key={staff.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}>
@@ -1518,7 +1513,6 @@
                     ) : (
                       <div className="bg-white p-5 rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border border-gray-100/50 space-y-8 animate-in fade-in">
                         
-                        {/* 項目別 合計グラフ */}
                         <div>
                           <h4 className="text-sm font-bold text-gray-900 border-b border-gray-100 pb-2 mb-4">項目別 合計</h4>
                           <div className="space-y-3.5">
@@ -1541,7 +1535,6 @@
                           </div>
                         </div>
 
-                        {/* スタッフ別 実績グラフ (ランキング項目基準) */}
                         <div>
                           <div className="flex justify-between items-end border-b border-gray-100 pb-2 mb-4">
                             <h4 className="text-sm font-bold text-gray-900">スタッフ別実績 <span className="text-[10px] text-gray-400 font-normal ml-1">(ランキング項目)</span></h4>
@@ -1698,7 +1691,7 @@
                           </div>
                           <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto hide-scroll">
                             {(settings.shops || []).map(s => (
-                              <label key={s.id} className="flex items-center space-x-2 text-sm bg-white p-2 rounded-xl border border-gray-100 cursor-pointer active:scale-95 transition-transform">
+                              <label key={s.id} className="flex items-center space-x-2 text-sm bg-white p-2 rounded-xl border border-gray-100">
                                 <input 
                                   type="checkbox" 
                                   checked={shareForm.targetShopIds.includes(s.id)} 
@@ -1729,7 +1722,7 @@
                           </div>
                           <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto hide-scroll">
                             {(settings.staffs || []).filter(s => shareForm.targetShopId === 'all' || s.shopId === shareForm.targetShopId).map(s => (
-                              <label key={s.id} className="flex items-center space-x-2 text-sm bg-white p-2 rounded-xl border border-gray-100 cursor-pointer active:scale-95 transition-transform">
+                              <label key={s.id} className="flex items-center space-x-2 text-sm bg-white p-2 rounded-xl border border-gray-100">
                                 <input 
                                   type="checkbox" 
                                   checked={shareForm.targetStaffIds.includes(s.id)} 
@@ -1914,14 +1907,12 @@
                           </div>
                         )}
 
-                        {/* 個人目標の場合のUI (入力枠のみ・メモは削除) */}
                         {isGoal && (
                           <div className="bg-[#f2f2f7] p-4 rounded-2xl mt-4 space-y-4">
                             <div className="flex justify-between items-center border-b border-gray-200 pb-2">
                               <p className="text-xs font-bold text-gray-500">対象月: <span className="text-gray-900 text-sm ml-1">{share.targetMonth}</span></p>
                             </div>
 
-                            {/* 目標入力フォーム */}
                             <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
                               <p className="text-xs font-bold text-amber-600 mb-2">自分の目標を入力して提出</p>
                               <select 
@@ -2021,11 +2012,11 @@
               </div>
             )}
 
-            {/* ======================= 作業リストタブ ======================= */}
+            {/* ======================= タスクタブ ======================= */}
             {tab === 'task' && (
               <div className="animate-in fade-in space-y-5">
                 <div className="flex justify-between items-end mb-2 ml-1">
-                  <h2 className="font-bold text-2xl text-gray-900 tracking-tight">作業リスト</h2>
+                  <h2 className="font-bold text-2xl text-gray-900 tracking-tight">タスク</h2>
                 </div>
 
                 <div className="flex bg-[#f2f2f7] p-1 rounded-xl">
@@ -2096,7 +2087,7 @@
                       {(!tasks || tasks.filter(t => !t.isCompleted).length === 0) && (
                         <div className="text-center py-12">
                           <CheckCircle size={40} className="mx-auto text-gray-200 mb-3" />
-                          <p className="text-gray-400 text-sm font-bold">残っている作業はありません！</p>
+                          <p className="text-gray-400 text-sm font-bold">残っているタスクはありません！</p>
                         </div>
                       )}
                     </div>
@@ -2515,9 +2506,9 @@
             <div className="max-w-md mx-auto flex justify-between px-2 pb-1">
               {[
                 { id: 'record', icon: Edit, label: '登録' },
-                { id: 'task', icon: ListTodo, label: '作業', badge: (tasks || []).filter(t => !t.isCompleted).length > 0 },
                 { id: 'analytics', icon: PieChart, label: 'データ' },
                 { id: 'share', icon: MessageSquare, label: '共有', badge: urgentShares.length > 0 },
+                { id: 'task', icon: ListTodo, label: 'タスク', badge: (tasks || []).filter(t => !t.isCompleted).length > 0 },
                 { id: 'settings', icon: SettingsIcon, label: '設定' }
               ].map(item => (
                 <button
