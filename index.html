@@ -2082,13 +2082,13 @@
                             <button onClick={() => completeTask(task.id)} className="text-gray-300 hover:text-orange-500 transition-colors shrink-0">
                               <Square size={26} />
                             </button>
-                            <div className="flex-1 overflow-hidden">
+                            <div className="flex-1">
                               <div className="flex items-center gap-2 mb-0.5">
                                 <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${task.targetShopId === 'all' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
                                   {shopName}
                                 </span>
                               </div>
-                              <div className="font-bold text-gray-800 text-sm truncate">{task.title}</div>
+                              <div className="font-bold text-gray-800 text-sm break-words whitespace-pre-wrap leading-snug">{task.title}</div>
                             </div>
                           </div>
                         );
@@ -2196,12 +2196,12 @@
 
                         return (
                           <div key={t.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center">
-                            <div className="overflow-hidden pr-2">
+                            <div className="flex-1 pr-2">
                               <div className="flex items-center gap-2 mb-1">
                                 <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-600 rounded font-bold truncate max-w-[120px] inline-block">{shopNames.join(', ') || '未設定'}</span>
                                 <span className="text-[10px] font-bold text-amber-600 shrink-0">{scheduleText}</span>
                               </div>
-                              <div className="font-bold text-gray-800 text-sm truncate">{t.title}</div>
+                              <div className="font-bold text-gray-800 text-sm break-words whitespace-pre-wrap leading-snug">{t.title}</div>
                             </div>
                             <div className="flex gap-2 shrink-0">
                               <button onClick={() => editTemplate(t)} className="p-2 text-gray-400 hover:text-gray-800"><Edit size={16}/></button>
