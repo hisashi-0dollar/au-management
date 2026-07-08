@@ -1805,7 +1805,25 @@
                         </div>
                         
                         <h4 className="font-bold text-lg text-gray-900 mb-2 leading-snug">{share.title}</h4>
-                        {share.content && <p className="text-sm text-gray-600 mb-4 whitespace-pre-wrap leading-relaxed">{share.content}</p>}
+                        {share.content && (() => {
+                          const isLongContent = share.content.length > 80 || (share.content.match(/\n/g) || []).length >= 3;
+                          const isExpanded = expandedShareIds.includes(share.id);
+                          return (
+                            <div className="mb-4">
+                              <p className={`text-sm text-gray-600 whitespace-pre-wrap leading-relaxed ${!isLongContent || isExpanded ? '' : 'line-clamp-3'}`}>
+                                {share.content}
+                              </p>
+                              {isLongContent && (
+                                <button 
+                                  onClick={() => setExpandedShareIds(prev => prev.includes(share.id) ? prev.filter(id => id !== share.id) : [...prev, share.id])}
+                                  className="text-amber-600 text-xs font-bold mt-1.5 active:opacity-50 transition-opacity flex items-center"
+                                >
+                                  {isExpanded ? '折りたたむ' : '続きを読む...'}
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
                         
                         <div className="flex items-center text-xs text-gray-400 font-medium mb-4 space-x-3">
                           <div className="flex items-center"><User size={12} className="mr-1"/>{creator}</div>
