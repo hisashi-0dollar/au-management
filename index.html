@@ -606,6 +606,7 @@
       const [shiftInput, setShiftInput] = useState({ shareId: '', staffId: '', dates: '' });
       
       const [goalForms, setGoalForms] = useState({});
+      const [expandedShareIds, setExpandedShareIds] = useState([]);
 
       const updateGoalForm = (shareId, field, value) => {
         setGoalForms(prev => {
