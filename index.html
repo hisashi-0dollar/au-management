@@ -464,9 +464,10 @@
       const [displayMode, setDisplayMode] = useState('count');
       const [sortConfig, setSortConfig] = useState({ key: 'total', direction: 'desc' });
       const [expandedStaffId, setExpandedStaffId] = useState(null);
+      const [expandedShopName, setExpandedShopName] = useState(null);
 
       useEffect(() => { if ((settings.products || []).length > 0 && !analyticsProductId) setAnalyticsProductId('all'); }, [settings.products, analyticsProductId]);
-      useEffect(() => { setExpandedStaffId(null); }, [analyticsCategory, analyticsProductId, analyticsOtherMainCategory, analyticsOtherSubCategory, dataType, period, viewMode]);
+      useEffect(() => { setExpandedStaffId(null); setExpandedShopName(null); }, [analyticsCategory, analyticsProductId, analyticsOtherMainCategory, analyticsOtherSubCategory, dataType, period, viewMode]);
 
       const filteredRecords = useMemo(() => {
         return records.filter(r => {
@@ -569,6 +570,32 @@
         if (sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
         setSortConfig({ key, direction });
       };
+
+      const shopTableData = useMemo(() => {
+        if (!currentTableData) return null;
+        const shopMap = {};
+        currentTableData.data.forEach(row => {
+          const sName = row.shopName || '不明な店舗';
+          if (!shopMap[sName]) {
+            shopMap[sName] = { shopName: sName, total: 0 };
+            currentTableData.columns.forEach(c => shopMap[sName][`item_${c}`] = 0);
+          }
+          shopMap[sName].total += row.total;
+          currentTableData.columns.forEach(c => {
+            shopMap[sName][`item_${c}`] += (row[`item_${c}`] || 0);
+          });
+        });
+        const data = Object.values(shopMap);
+        if (sortConfig.key) {
+           data.sort((a, b) => {
+             const key = sortConfig.key === 'staffName' ? 'shopName' : sortConfig.key;
+             if (a[key] < b[key]) return sortConfig.direction === 'asc' ? -1 : 1;
+             if (a[key] > b[key]) return sortConfig.direction === 'asc' ? 1 : -1;
+             return 0;
+           });
+        }
+        return { columns: currentTableData.columns, data };
+      }, [currentTableData, sortConfig]);
 
       const deleteRecord = async (id) => {
         try { 
@@ -1467,47 +1494,100 @@
                     </div>
 
                     {viewMode === 'table' ? (
-                      <div className="bg-white rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border border-gray-100/50 overflow-hidden relative animate-in fade-in">
-                        <div className="overflow-x-auto hide-scroll pb-2">
-                          <table className="w-full text-sm text-left whitespace-nowrap">
-                            <thead className="text-xs text-gray-400 bg-white border-b border-gray-100">
-                              <tr>
-                                <th className="px-4 py-4 font-semibold cursor-pointer sticky left-0 z-10 bg-white shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]" onClick={() => requestSort('staffName')}>
-                                  スタッフ {sortConfig.key === 'staffName' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}
-                                </th>
-                                <th className="px-4 py-4 font-semibold cursor-pointer text-right min-w-[80px]" onClick={() => requestSort('total')}>
-                                  対応数 {sortConfig.key === 'total' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}
-                                </th>
-                                {currentTableData.columns.map(item => (
-                                  <th key={item} className="px-4 py-4 font-semibold cursor-pointer text-right min-w-[80px]" onClick={() => requestSort(`item_${item}`)}>
-                                    {item} {sortConfig.key === `item_${item}` ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}
+                      <div className="space-y-6 animate-in fade-in">
+                        {/* --- 店舗別 実績表 --- */}
+                        <div className="bg-white rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border border-gray-100/50 overflow-hidden relative">
+                          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50">
+                            <h4 className="text-sm font-bold text-gray-800">店舗別 実績表</h4>
+                          </div>
+                          <div className="overflow-x-auto hide-scroll pb-2">
+                            <table className="w-full text-sm text-left whitespace-nowrap">
+                              <thead className="text-xs text-gray-400 bg-white border-b border-gray-100">
+                                <tr>
+                                  <th className="px-4 py-4 font-semibold cursor-pointer sticky left-0 z-10 bg-white shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]" onClick={() => requestSort('staffName')}>
+                                    店舗 {sortConfig.key === 'staffName' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}
                                   </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                              {currentTableData.data.map((row, idx) => (
-                                <tr key={row.staffId} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
-                                  <td className={`px-4 py-3.5 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] ${idx % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'}`}>
-                                    <div className="font-bold text-gray-900">{row.staffName}</div>
-                                    <div className="text-[10px] text-gray-400 font-medium">{row.shopName}</div>
-                                  </td>
-                                  <td className="px-4 py-3.5 text-right font-black text-gray-800 bg-gray-50/50">
-                                    {row.total}
-                                  </td>
-                                  {currentTableData.columns.map(item => {
-                                    const count = row[`item_${item}`] || 0;
-                                    const rate = row.total > 0 ? Math.round((count / row.total) * 100) : 0;
-                                    return (
-                                      <td key={item} className="px-4 py-3.5 text-right text-gray-600 font-medium">
-                                        {displayMode === 'count' ? count : <span className="text-gray-400 text-xs">{rate}%</span>}
-                                      </td>
-                                    )
-                                  })}
+                                  <th className="px-4 py-4 font-semibold cursor-pointer text-right min-w-[80px]" onClick={() => requestSort('total')}>
+                                    対応数 {sortConfig.key === 'total' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}
+                                  </th>
+                                  {shopTableData.columns.map(item => (
+                                    <th key={item} className="px-4 py-4 font-semibold cursor-pointer text-right min-w-[80px]" onClick={() => requestSort(`item_${item}`)}>
+                                      {item} {sortConfig.key === `item_${item}` ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                  ))}
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                              </thead>
+                              <tbody className="divide-y divide-gray-50">
+                                {shopTableData.data.map((row, idx) => (
+                                  <tr key={row.shopName} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                                    <td className={`px-4 py-3.5 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] font-bold text-gray-900 ${idx % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'}`}>
+                                      {row.shopName}
+                                    </td>
+                                    <td className="px-4 py-3.5 text-right font-black text-gray-800 bg-gray-50/50">
+                                      {row.total}
+                                    </td>
+                                    {shopTableData.columns.map(item => {
+                                      const count = row[`item_${item}`] || 0;
+                                      const rate = row.total > 0 ? Math.round((count / row.total) * 100) : 0;
+                                      return (
+                                        <td key={item} className="px-4 py-3.5 text-right text-gray-600 font-medium">
+                                          {displayMode === 'count' ? count : <span className="text-gray-400 text-xs">{rate}%</span>}
+                                        </td>
+                                      )
+                                    })}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                        {/* --- スタッフ別 実績表 --- */}
+                        <div className="bg-white rounded-3xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] border border-gray-100/50 overflow-hidden relative">
+                          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50">
+                            <h4 className="text-sm font-bold text-gray-800">スタッフ別 実績表</h4>
+                          </div>
+                          <div className="overflow-x-auto hide-scroll pb-2">
+                            <table className="w-full text-sm text-left whitespace-nowrap">
+                              <thead className="text-xs text-gray-400 bg-white border-b border-gray-100">
+                                <tr>
+                                  <th className="px-4 py-4 font-semibold cursor-pointer sticky left-0 z-10 bg-white shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]" onClick={() => requestSort('staffName')}>
+                                    スタッフ {sortConfig.key === 'staffName' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}
+                                  </th>
+                                  <th className="px-4 py-4 font-semibold cursor-pointer text-right min-w-[80px]" onClick={() => requestSort('total')}>
+                                    対応数 {sortConfig.key === 'total' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}
+                                  </th>
+                                  {currentTableData.columns.map(item => (
+                                    <th key={item} className="px-4 py-4 font-semibold cursor-pointer text-right min-w-[80px]" onClick={() => requestSort(`item_${item}`)}>
+                                      {item} {sortConfig.key === `item_${item}` ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-50">
+                                {currentTableData.data.map((row, idx) => (
+                                  <tr key={row.staffId} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                                    <td className={`px-4 py-3.5 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] ${idx % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'}`}>
+                                      <div className="font-bold text-gray-900">{row.staffName}</div>
+                                      <div className="text-[10px] text-gray-400 font-medium">{row.shopName}</div>
+                                    </td>
+                                    <td className="px-4 py-3.5 text-right font-black text-gray-800 bg-gray-50/50">
+                                      {row.total}
+                                    </td>
+                                    {currentTableData.columns.map(item => {
+                                      const count = row[`item_${item}`] || 0;
+                                      const rate = row.total > 0 ? Math.round((count / row.total) * 100) : 0;
+                                      return (
+                                        <td key={item} className="px-4 py-3.5 text-right text-gray-600 font-medium">
+                                          {displayMode === 'count' ? count : <span className="text-gray-400 text-xs">{rate}%</span>}
+                                        </td>
+                                      )
+                                    })}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
                         </div>
                       </div>
                     ) : (
@@ -1532,6 +1612,80 @@
                                 </div>
                               );
                             })}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex justify-between items-end border-b border-gray-100 pb-2 mb-4">
+                            <h4 className="text-sm font-bold text-gray-900">店舗別実績 <span className="text-[10px] text-gray-400 font-normal ml-1">(ランキング項目)</span></h4>
+                            <span className="text-[10px] text-gray-400 font-bold bg-gray-100 px-2.5 py-1 rounded-full">タップで詳細</span>
+                          </div>
+                          
+                          <div className="space-y-4 mb-8">
+                            {(() => {
+                              const shopMap = {};
+                              currentTableData.data.forEach(row => {
+                                const sName = row.shopName || '不明な店舗';
+                                if (!shopMap[sName]) shopMap[sName] = { shopName: sName, total: 0, rankingCount: 0, details: {} };
+                                shopMap[sName].total += row.total;
+                                shopMap[sName].rankingCount += row.rankingCount;
+                                if (row.rankingDetails) {
+                                  row.rankingDetails.forEach(d => {
+                                    const k = `${d.name}_${d.itemName}`;
+                                    if (!shopMap[sName].details[k]) shopMap[sName].details[k] = { name: d.name, itemName: d.itemName, count: 0 };
+                                    shopMap[sName].details[k].count += d.count;
+                                  });
+                                }
+                              });
+                              const shopRankingData = Object.values(shopMap).map(s => ({...s, rankingDetails: Object.values(s.details).sort((a,b)=>b.count - a.count)})).sort((a,b) => b.rankingCount - a.rankingCount);
+                              const maxShopTotal = Math.max(...shopRankingData.map(r => r.rankingCount)) || 1;
+
+                              return shopRankingData.map(row => {
+                                const percent = (row.rankingCount / maxShopTotal) * 100;
+                                const isExpanded = expandedShopName === row.shopName;
+
+                                return (
+                                  <div key={row.shopName} className="flex flex-col">
+                                    <div 
+                                      className="flex items-center text-sm cursor-pointer active:opacity-50 transition-opacity"
+                                      onClick={() => setExpandedShopName(isExpanded ? null : row.shopName)}
+                                    >
+                                      <div className="w-24 truncate font-semibold text-gray-700 pr-2">{row.shopName}</div>
+                                      <div className="flex-1">
+                                        <div className="h-4 bg-[#f2f2f7] rounded-full overflow-hidden">
+                                          <div className="h-full bg-blue-500 rounded-full transition-all duration-700 ease-out" style={{ width: `${percent}%` }}></div>
+                                        </div>
+                                      </div>
+                                      <div className="w-10 text-right font-bold text-gray-900 ml-3">{row.rankingCount}</div>
+                                    </div>
+                                    
+                                    {isExpanded && (
+                                      <div className="ml-24 mt-2 p-3 bg-[#f2f2f7] rounded-xl text-xs space-y-1.5 animate-in slide-in-from-top-2">
+                                        <div className="flex justify-between font-bold text-gray-500 mb-1 border-b border-gray-200 pb-1.5">
+                                          <span>総対応数</span>
+                                          <span className="text-gray-900">{row.total}件</span>
+                                        </div>
+                                        {row.rankingDetails && row.rankingDetails.map((detail, idx) => {
+                                          if (detail.count === 0) return null;
+                                          return (
+                                            <div key={idx} className="flex justify-between items-center text-gray-600">
+                                              <div className="flex flex-col">
+                                                <span className="font-semibold text-gray-700">{detail.name}</span>
+                                                <span className="text-[10px] text-amber-500 font-bold">{detail.itemName}</span>
+                                              </div>
+                                              <span className="font-bold text-gray-800">{detail.count}件</span>
+                                            </div>
+                                          );
+                                        })}
+                                        {(!row.rankingDetails || row.rankingDetails.filter(d => d.count > 0).length === 0) && (
+                                          <div className="text-gray-400 text-center py-1">ランキング対象の実績なし</div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              });
+                            })()}
                           </div>
                         </div>
 
